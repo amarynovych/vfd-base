@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>База ПЧ - Командна робота</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // --- ПІДКЛЮЧЕННЯ FIREBASE ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAtl9abE3Sgap2G7tzwVK1BQf5ptOxOBFs",
+            authDomain: "vfd-db.firebaseapp.com",
+            databaseURL: "https://vfd-db-default-rtdb.europe-west1.firebasedatabase.app",
+            projectId: "vfd-db",
+            storageBucket: "vfd-db.firebasestorage.app",
+            messagingSenderId: "534290200378",
+            appId: "1:534290200378:web:da96cf98c82fbea10dc203"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        const App = () => {
+            const [vfds, setVfds] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+
+            React.useEffect(() => {
+                const dbRef = ref(db, 'vfd_data/');
+                onValue(dbRef, (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) setVfds(data.vfds || []);
+                    setLoading(false);
+                });
+            }, []);
+
+            const addTestVfd = () => {
+                const newList = [...vfds, { id: Date.now(), name: "Test VFD", date: new Date().toLocaleString() }];
+                set(ref(db, 'vfd_data/'), { vfds: newList });
+            };
+
+            if (loading) return <div className="p-10 text-center">Завантаження бази...</div>;
+
+            return (
+                <div className="p-8">
+                    <h1 className="text-2xl font-bold mb-4 text-blue-800">🔌 Спільна база ПЧ (Firebase + GitHub)</h1>
+                    <button onClick={addTestVfd} className="bg-blue-600 text-white px-4 py-2 rounded shadow mb-6">
+                        Додати тестовий запис
+                    </button>
+                    <div className="grid gap-4">
+                        {vfds.map(v => (
+                            <div key={v.id} className="p-4 bg-white border rounded shadow-sm">
+                                <strong>ПЧ #{v.id}</strong> — Створено: {v.date}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
