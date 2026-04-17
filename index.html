@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VFD Enterprise Pro v5</title>
+    <title>VFD Enterprise | Final Stable</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -11,17 +11,16 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
         .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 700; }
         .modal-overlay { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(5px); }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
-        // --- CONFIG ---
         const firebaseConfig = {
             apiKey: "AIzaSyAtl9abE3Sgap2G7tzwVK1BQf5ptOxOBFs",
             authDomain: "vfd-db.firebaseapp.com",
@@ -34,7 +33,8 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
-        const DB_PATH = 'vfd_v5_enterprise/';
+        // ФІКСОВАНИЙ ШЛЯХ - БІЛЬШЕ НЕ ЗМІНЮЄТЬСЯ
+        const DB_PATH = 'vfd_production_final/';
 
         function App() {
             const [data, setData] = React.useState({ vfds: {}, log: {}, dict: { users: [], hardware: [], tags: [] } });
@@ -42,7 +42,7 @@
             const [activeTab, setActiveTab] = React.useState('dash');
             const [modals, setModals] = React.useState({ vfd: false, hardware: false, edit: false });
             const [selectedId, setSelectedId] = React.useState(null);
-            const [sessionUser, setSessionUser] = React.useState(null);
+            const [currentUser, setCurrentUser] = React.useState(null);
 
             React.useEffect(() => {
                 db.ref(DB_PATH).on('value', snap => {
@@ -53,121 +53,111 @@
             }, []);
 
             const logAction = (msg) => {
-                if (!sessionUser) return;
+                const userName = currentUser ? currentUser.name : "Система/Гість";
                 db.ref(DB_PATH + 'log').push({
                     ts: new Date().toLocaleString("uk-UA"),
-                    user: sessionUser.name,
+                    user: userName,
                     msg: msg
                 });
             };
 
-            const verifyUser = (name, pin) => {
+            const verifyAndAction = (name, pin, actionFn) => {
                 const user = (data.dict.users || []).find(u => u.name === name && u.pin === pin);
                 if (user) {
-                    setSessionUser(user);
+                    setCurrentUser(user);
+                    actionFn();
                     return true;
                 }
-                alert("Помилка авторизації!");
+                alert("Невірний PIN-код!");
                 return false;
             };
 
-            // --- МОДАЛЬНЕ ВІКНО ДОДАВАННЯ ТА РЕДАГУВАННЯ ---
+            // --- КОМПОНЕНТ МОДАЛЬНОГО ВІКНА ---
             const VfdModal = ({ mode = 'add', targetId = null }) => {
-                const initialForm = mode === 'edit' && data.vfds[targetId] 
-                    ? data.vfds[targetId] 
-                    : { manufacturer: '', series: '', part: '', power: '', tag: '', status: 'Резерв' };
-                
-                const [form, setForm] = React.useState(initialForm);
+                const [form, setForm] = React.useState(mode === 'edit' ? data.vfds[targetId] : { manufacturer: '', series: '', part: '', power: '', tag: '', status: 'Резерв' });
                 const [pin, setPin] = React.useState('');
-                const [userName, setUserName] = React.useState(sessionUser?.name || '');
+                const [userName, setUserName] = React.useState(currentUser?.name || '');
 
                 const manufacturers = [...new Set((data.dict.hardware || []).map(h => h.m))];
                 const seriesOptions = [...new Set((data.dict.hardware || []).filter(h => h.m === form.manufacturer).map(h => h.s))];
                 const partOptions = (data.dict.hardware || []).filter(h => h.m === form.manufacturer && h.s === form.series).map(h => h.part);
 
-                const handleSave = () => {
-                    if (!verifyUser(userName, pin)) return;
-                    
-                    if (mode === 'add') {
-                        const newRef = db.ref(DB_PATH + 'vfds').push();
-                        newRef.set({ ...form, lastUpd: new Date().toLocaleString() });
-                        logAction(`Створено ПЧ: ${form.manufacturer} ${form.series} (${form.tag})`);
-                    } else {
-                        db.ref(DB_PATH + 'vfds/' + targetId).update({ ...form, lastUpd: new Date().toLocaleString() });
-                        logAction(`Оновлено дані ПЧ: ${form.manufacturer} (Статус: ${form.status})`);
-                    }
-                    setModals({ ...modals, vfd: false, edit: false });
+                const save = () => {
+                    verifyAndAction(userName, pin, () => {
+                        if (mode === 'add') {
+                            const newRef = db.ref(DB_PATH + 'vfds').push();
+                            newRef.set({ ...form, lastUpd: new Date().toLocaleString() });
+                            logAction(`Додано новий ПЧ: ${form.manufacturer} ${form.series}`);
+                        } else {
+                            db.ref(DB_PATH + 'vfds/' + targetId).update({ ...form, lastUpd: new Date().toLocaleString() });
+                            logAction(`Змінено ПЧ: ${form.manufacturer} ${form.series} (Статус: ${form.status})`);
+                        }
+                        setModals({ vfd: false, hardware: false, edit: false });
+                    });
                 };
 
                 return (
                     <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden">
-                            <div className="bg-slate-900 p-6 text-white flex justify-between items-center">
-                                <h2 className="text-xl font-bold uppercase tracking-tighter italic">
-                                    {mode === 'add' ? 'Реєстрація ПЧ' : 'Редагування ПЧ'}
-                                </h2>
-                                <button onClick={() => setModals({ ...modals, vfd: false, edit: false })} className="text-2xl">✕</button>
-                            </div>
-                            <div className="p-8 space-y-4">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl p-8">
+                            <h2 className="text-2xl font-black mb-6 uppercase italic">{mode === 'add' ? 'Реєстрація ПЧ' : 'Редагування'}</h2>
+                            <div className="space-y-4">
                                 <div className="grid grid-cols-2 gap-4">
                                     <select className="border-2 p-3 rounded-xl" value={form.manufacturer} onChange={e => setForm({...form, manufacturer: e.target.value})}>
-                                        <option value="">-- Виробник --</option>
+                                        <option value="">Виробник</option>
                                         {manufacturers.map(m => <option key={m}>{m}</option>)}
                                     </select>
                                     <select className="border-2 p-3 rounded-xl" value={form.series} onChange={e => setForm({...form, series: e.target.value})}>
-                                        <option value="">-- Серія --</option>
+                                        <option value="">Серія</option>
                                         {seriesOptions.map(s => <option key={s}>{s}</option>)}
                                     </select>
                                 </div>
-                                <select className="w-full border-2 p-3 rounded-xl" value={form.part} onChange={e => setForm({...form, part: e.target.value})}>
-                                    <option value="">-- Заказний код --</option>
+                                <select className="w-full border-2 p-3 rounded-xl font-mono text-sm" value={form.part} onChange={e => setForm({...form, part: e.target.value})}>
+                                    <option value="">Заказний код (Part Number)</option>
                                     {partOptions.map(p => <option key={p}>{p}</option>)}
                                 </select>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <input placeholder="Потужність кВт" value={form.power} className="border-2 p-3 rounded-xl" onChange={e => setForm({...form, power: e.target.value})} />
-                                    <select className="border-2 p-3 rounded-xl" value={form.tag} onChange={e => setForm({...form, tag: e.target.value})}>
-                                        <option value="">-- Тег (Локація) --</option>
+                                    <input placeholder="кВт" value={form.power} className="border-2 p-3 rounded-xl" onChange={e => setForm({...form, power: e.target.value})} />
+                                    <select className="border-2 p-3 rounded-xl font-bold text-blue-600" value={form.tag} onChange={e => setForm({...form, tag: e.target.value})}>
+                                        <option value="">Локація (Тег)</option>
                                         {(data.dict.tags || []).map(t => <option key={t}>{t}</option>)}
                                     </select>
                                 </div>
-                                <select className="w-full border-2 p-3 rounded-xl bg-blue-50 font-bold" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                                <select className="w-full border-2 p-3 rounded-xl bg-slate-50 font-bold" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
                                     {["Резерв", "В експлуатації", "В ремонті", "Списаний"].map(s => <option key={s}>{s}</option>)}
                                 </select>
-                                
-                                <div className="bg-slate-100 p-4 rounded-2xl grid grid-cols-2 gap-4 border border-dashed border-slate-300">
+
+                                <div className="bg-blue-50 p-4 rounded-2xl border-2 border-blue-100 grid grid-cols-2 gap-4">
                                     <select className="p-2 border rounded-lg" value={userName} onChange={e => setUserName(e.target.value)}>
-                                        <option value="">-- Хто вносить зміни? --</option>
+                                        <option value="">Відповідальний</option>
                                         {(data.dict.users || []).map(u => <option key={u.name}>{u.name}</option>)}
                                     </select>
-                                    <input type="password" placeholder="PIN" className="p-2 border rounded-lg text-center font-bold" onChange={e => setPin(e.target.value)} />
+                                    <input type="password" placeholder="PIN-код" className="p-2 border rounded-lg text-center font-bold" onChange={e => setPin(e.target.value)} />
                                 </div>
-                                <button className="w-full bg-blue-600 text-white font-black p-4 rounded-2xl shadow-xl uppercase tracking-widest" onClick={handleSave}>Зберегти зміни</button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setModals({vfd:false,edit:false})} className="flex-1 p-4 font-bold text-slate-400">Скасувати</button>
+                                    <button onClick={save} className="flex-[2] bg-blue-600 text-white p-4 rounded-2xl font-black shadow-lg">ПІДТВЕРДИТИ</button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 );
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center font-black text-slate-300 animate-pulse italic text-2xl tracking-tighter">VFD SYSTEM CORE SYNCHRONIZING...</div>;
+            if (loading) return <div className="h-screen flex items-center justify-center font-black text-blue-600 animate-bounce text-xl tracking-tighter">VFD ENTERPRISE SYNCING...</div>;
 
-            const vfdEntries = Object.entries(data.vfds || {});
+            const vfdList = Object.entries(data.vfds || {});
 
             return (
-                <div className="max-w-7xl mx-auto p-4 md:p-10">
-                    <header className="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
-                        <div>
-                            <h1 className="text-4xl font-black text-slate-900 tracking-tighter">VFD <span className="text-blue-600 italic">SYSTEM</span></h1>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Enterprise Cloud Database</p>
-                        </div>
-                        <button onClick={() => setModals({...modals, vfd: true})} className="bg-slate-900 text-white px-10 py-5 rounded-[2rem] font-black shadow-2xl hover:bg-blue-600 transition-all uppercase tracking-widest">
-                            + Реєстрація ПЧ
-                        </button>
+                <div className="max-w-7xl mx-auto p-4 md:p-8">
+                    <header className="flex justify-between items-center mb-10">
+                        <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">VFD <span className="text-blue-600">Pro</span></h1>
+                        <button onClick={() => setModals({...modals, vfd: true})} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-bold shadow-xl hover:scale-105 transition-all uppercase text-sm">+ Реєстрація ПЧ</button>
                     </header>
 
-                    <nav className="flex flex-wrap gap-6 mb-8 border-b-2 border-slate-200">
+                    <nav className="flex gap-6 mb-8 border-b-2">
                         {['dash', 'table', 'tiles', 'dict', 'log'].map(t => (
-                            <button key={t} onClick={() => setActiveTab(t)} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest transition-all ${activeTab === t ? 'tab-active' : 'text-slate-400 hover:text-slate-600'}`}>
-                                {t === 'dash' ? 'Статистика' : t === 'table' ? 'Таблиця' : t === 'tiles' ? 'Плитки' : t === 'dict' ? 'Довідник' : 'Журнал'}
+                            <button key={t} onClick={() => setActiveTab(t)} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest transition-all ${activeTab === t ? 'tab-active' : 'text-slate-400'}`}>
+                                {t === 'dash' ? 'Дашборд' : t === 'table' ? 'Таблиця' : t === 'tiles' ? 'Плитки' : t === 'dict' ? 'Довідник' : 'Журнал'}
                             </button>
                         ))}
                     </nav>
@@ -175,12 +165,12 @@
                     {activeTab === 'dash' && (
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             {[
-                                {l: 'Усього', v: vfdEntries.length, c: 'text-slate-900'},
-                                {l: 'В роботі', v: vfdEntries.filter(([id, v])=>v.status==='В експлуатації').length, c: 'text-emerald-500'},
-                                {l: 'Резерв', v: vfdEntries.filter(([id, v])=>v.status==='Резерв').length, c: 'text-blue-500'},
-                                {l: 'Ремонт', v: vfdEntries.filter(([id, v])=>v.status==='В ремонті').length, c: 'text-rose-500'}
+                                {l: 'Усього', v: vfdList.length, c: 'text-slate-900'},
+                                {l: 'В роботі', v: vfdList.filter(([id, v])=>v.status==='В експлуатації').length, c: 'text-emerald-500'},
+                                {l: 'Резерв', v: vfdList.filter(([id, v])=>v.status==='Резерв').length, c: 'text-blue-500'},
+                                {l: 'Ремонт', v: vfdList.filter(([id, v])=>v.status==='В ремонті').length, c: 'text-rose-500'}
                             ].map((s, i) => (
-                                <div key={i} className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-50 border-b-4 border-b-slate-100">
+                                <div key={i} className="bg-white p-10 rounded-[2.5rem] shadow-sm border">
                                     <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1">{s.l}</p>
                                     <p className={`text-5xl font-black ${s.c}`}>{s.v}</p>
                                 </div>
@@ -189,34 +179,19 @@
                     )}
 
                     {activeTab === 'table' && (
-                        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+                        <div className="bg-white rounded-3xl shadow-sm border overflow-hidden">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                    <tr>
-                                        <th className="p-6 text-center">Дія</th>
-                                        <th className="p-6">Модель / Серія</th>
-                                        <th className="p-6 text-center">Потужність</th>
-                                        <th className="p-6">Тег Локація</th>
-                                        <th className="p-6">Статус</th>
-                                    </tr>
+                                    <tr><th className="p-6">Дія</th><th className="p-6">Пристрій</th><th className="p-6">Потужність</th><th className="p-6">Локація</th><th className="p-6">Статус</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
-                                    {vfdEntries.map(([id, v]) => (
+                                    {vfdList.map(([id, v]) => (
                                         <tr key={id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="p-6 text-center">
-                                                <button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="text-blue-500 hover:scale-125 transition-transform">✎</button>
-                                            </td>
-                                            <td className="p-6">
-                                                <div className="font-black text-slate-800 uppercase tracking-tighter">{v.manufacturer} {v.series}</div>
-                                                <div className="text-[10px] font-mono text-slate-400">{v.part}</div>
-                                            </td>
-                                            <td className="p-6 text-center font-bold text-slate-600">{v.power} кВт</td>
-                                            <td className="p-6 font-black text-blue-600 underline underline-offset-4 decoration-blue-100 italic">{v.tag}</td>
-                                            <td className="p-6">
-                                                <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${v.status === 'В експлуатації' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
-                                                    {v.status}
-                                                </span>
-                                            </td>
+                                            <td className="p-6"><button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="text-blue-500 text-xl font-bold">✎</button></td>
+                                            <td className="p-6"><div className="font-black text-slate-800">{v.manufacturer} {v.series}</div><div className="text-[10px] text-slate-400 font-mono">{v.part}</div></td>
+                                            <td className="p-6 font-bold">{v.power} кВт</td>
+                                            <td className="p-6 font-black text-blue-600 italic underline decoration-blue-100">{v.tag}</td>
+                                            <td className="p-6"><span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${v.status === 'В експлуатації' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>{v.status}</span></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -226,16 +201,15 @@
 
                     {activeTab === 'tiles' && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {vfdEntries.map(([id, v]) => (
-                                <div key={id} className="bg-white p-8 rounded-[2rem] shadow-sm border-t-8 border-t-slate-800 border border-slate-100 relative group overflow-hidden hover:shadow-xl transition-all">
-                                    <div className="flex justify-between items-start mb-6">
-                                        <div className="text-2xl font-black text-slate-900 tracking-tighter">{v.manufacturer}</div>
-                                        <button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="bg-slate-100 p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">✎</button>
-                                    </div>
-                                    <div className="space-y-4">
-                                        <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-300 uppercase">Потужність</span><span className="font-bold">{v.power} кВт</span></div>
-                                        <div className="flex justify-between border-b pb-2"><span className="text-[10px] font-black text-slate-300 uppercase">Тег</span><span className="font-black text-blue-600 italic underline decoration-blue-50">{v.tag}</span></div>
-                                        <div className="pt-2"><span className="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-black uppercase">{v.status}</span></div>
+                            {vfdList.map(([id, v]) => (
+                                <div key={id} className="bg-white p-8 rounded-[2rem] shadow-sm border relative hover:shadow-xl transition-all group">
+                                    <button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="absolute top-6 right-6 opacity-0 group-hover:opacity-100 text-blue-500 font-bold">РЕДАГУВАТИ</button>
+                                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter mb-1">{v.manufacturer}</h3>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">{v.series}</p>
+                                    <div className="space-y-3 border-t pt-4">
+                                        <div className="flex justify-between text-sm"><span className="text-slate-400 italic">Локація:</span><span className="font-bold text-blue-600">{v.tag}</span></div>
+                                        <div className="flex justify-between text-sm"><span className="text-slate-400 italic">Потужність:</span><span className="font-bold">{v.power} кВт</span></div>
+                                        <div className="pt-2"><span className="px-3 py-1 bg-slate-100 rounded-full text-[10px] font-black uppercase tracking-widest">{v.status}</span></div>
                                     </div>
                                 </div>
                             ))}
@@ -244,50 +218,35 @@
 
                     {activeTab === 'dict' && (
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-                                <h3 className="font-black text-[10px] uppercase tracking-widest text-blue-600 mb-6 underline underline-offset-8 decoration-4">1. Каталог обладнання</h3>
-                                <div className="space-y-2 mb-6 max-h-60 overflow-y-auto pr-2">
-                                    {(data.dict.hardware || []).map((h, i) => (
-                                        <div key={i} className="p-3 bg-slate-50 rounded-xl text-xs font-bold border border-slate-100">{h.m} {h.s} <br/><span className="text-[10px] text-slate-400 font-mono italic">{h.part}</span></div>
-                                    ))}
+                            <div className="bg-white p-8 rounded-[2rem] shadow-sm border">
+                                <h3 className="font-black text-[10px] uppercase text-blue-600 mb-6">1. Моделі ПЧ</h3>
+                                <div className="space-y-2 mb-6 max-h-60 overflow-y-auto">
+                                    {(data.dict.hardware || []).map((h, i) => <div key={i} className="p-3 bg-slate-50 rounded-xl text-xs font-bold">{h.m} {h.s} <span className="block text-[10px] text-slate-400 font-mono italic">{h.part}</span></div>)}
                                 </div>
-                                <button onClick={() => {
-                                    const m = prompt("Виробник?"); const s = prompt("Серія?"); const p = prompt("Part No?");
-                                    if(m && s && p) db.ref(DB_PATH+'dict/hardware').set([...(data.dict.hardware||[]), {m, s, part: p}]);
-                                }} className="w-full p-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">+ Додати модель</button>
+                                <button onClick={() => {const m=prompt("Виробник?"); const s=prompt("Серія?"); const p=prompt("Part No?"); if(m&&s&&p) db.ref(DB_PATH+'dict/hardware').set([...(data.dict.hardware||[]), {m, s, part: p}]);}} className="w-full p-4 bg-slate-900 text-white rounded-2xl font-black text-[10px]">+ ДОДАТИ</button>
                             </div>
-                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100">
-                                <h3 className="font-black text-[10px] uppercase tracking-widest text-emerald-600 mb-6 underline underline-offset-8 decoration-4">2. Теги встановлення</h3>
-                                <div className="flex flex-wrap gap-2 mb-6">
-                                    {(data.dict.tags || []).map((t, i) => <span key={i} className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black uppercase">{t}</span>)}
-                                </div>
-                                <button onClick={() => {
-                                    const t = prompt("Назва тегу (напр. P-101)?");
-                                    if(t) db.ref(DB_PATH+'dict/tags').set([...(data.dict.tags||[]), t]);
-                                }} className="w-full p-4 bg-emerald-100 text-emerald-800 rounded-2xl font-black text-[10px] uppercase tracking-widest">+ Додати тег</button>
+                            <div className="bg-white p-8 rounded-[2rem] shadow-sm border">
+                                <h3 className="font-black text-[10px] uppercase text-emerald-600 mb-6">2. Теги встановлення</h3>
+                                <div className="flex flex-wrap gap-2 mb-6">{(data.dict.tags || []).map((t, i) => <span key={i} className="px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-black">{t}</span>)}</div>
+                                <button onClick={() => {const t=prompt("Назва тегу?"); if(t) db.ref(DB_PATH+'dict/tags').set([...(data.dict.tags||[]), t]);}} className="w-full p-4 bg-emerald-100 text-emerald-800 rounded-2xl font-black text-[10px]">+ ДОДАТИ</button>
                             </div>
-                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 text-center">
-                                <h3 className="font-black text-[10px] uppercase tracking-widest text-rose-600 mb-6 underline underline-offset-8 decoration-4">3. Відповідальні</h3>
-                                <div className="space-y-2 mb-6">
-                                    {(data.dict.users || []).map((u, i) => <div key={i} className="p-3 bg-rose-50 rounded-xl text-xs font-black flex justify-between uppercase"><span>{u.name}</span> <span className="text-rose-200 italic">PIN: {u.pin}</span></div>)}
-                                </div>
-                                <button onClick={() => {
-                                    const n = prompt("Ім'я?"); const p = prompt("PIN?");
-                                    if(n && p) db.ref(DB_PATH+'dict/users').set([...(data.dict.users||[]), {name: n, pin: p}]);
-                                }} className="w-full p-4 bg-rose-100 text-rose-800 rounded-2xl font-black text-[10px] uppercase tracking-widest">+ Нова персона</button>
+                            <div className="bg-white p-8 rounded-[2rem] shadow-sm border">
+                                <h3 className="font-black text-[10px] uppercase text-rose-600 mb-6">3. Персонал</h3>
+                                <div className="space-y-2 mb-6">{(data.dict.users || []).map((u, i) => <div key={i} className="p-3 bg-rose-50 rounded-xl text-xs font-black flex justify-between uppercase"><span>{u.name}</span><span className="text-rose-200">PIN: {u.pin}</span></div>)}</div>
+                                <button onClick={() => {const n=prompt("Ім'я?"); const p=prompt("PIN?"); if(n&&p) db.ref(DB_PATH+'dict/users').set([...(data.dict.users||[]), {name: n, pin: p}]);}} className="w-full p-4 bg-rose-100 text-rose-800 rounded-2xl font-black text-[10px]">+ ДОДАТИ</button>
                             </div>
                         </div>
                     )}
 
                     {activeTab === 'log' && (
-                        <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 p-10">
-                            <h3 className="text-xs font-black uppercase tracking-widest text-slate-300 mb-8 italic italic">System Activity Log</h3>
+                        <div className="bg-white rounded-[2rem] shadow-sm border p-10 max-h-[600px] overflow-y-auto">
+                            <h3 className="text-xs font-black uppercase text-slate-300 mb-8 italic italic">System Activity Log</h3>
                             <div className="space-y-4">
-                                {Object.values(data.log || {}).reverse().slice(0, 100).map((l, i) => (
-                                    <div key={i} className="flex gap-8 border-l-2 border-slate-100 pl-6 py-2 relative">
+                                {Object.values(data.log || {}).reverse().map((l, i) => (
+                                    <div key={i} className="flex gap-6 border-l-2 pl-6 py-2 relative border-slate-100">
                                         <div className="absolute -left-[5px] top-4 w-2 h-2 rounded-full bg-blue-500"></div>
-                                        <div className="text-[10px] font-mono text-slate-400 w-32 shrink-0">{l.ts}</div>
-                                        <div className="text-[10px] font-black text-blue-600 uppercase w-24 shrink-0">{l.user}</div>
+                                        <div className="text-[10px] font-mono text-slate-400 w-32">{l.ts}</div>
+                                        <div className="text-[10px] font-black text-blue-600 uppercase w-24">{l.user}</div>
                                         <div className="text-xs font-medium text-slate-700">{l.msg}</div>
                                     </div>
                                 ))}
