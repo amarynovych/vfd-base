@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VFD Enterprise | Ultimate Control</title>
+    <title>VFD Enterprise | Filter Fix</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -40,14 +40,14 @@
             const [data, setData] = React.useState({ vfds: {}, log: {}, dict: { hardware: [], tags: [] } });
             const [loading, setLoading] = React.useState(true);
             const [activeTab, setActiveTab] = React.useState('dash');
-            const [modals, setModals] = React.useState({ vfd: false, edit: false, hware: false, tag: false, hwareEdit: false });
+            const [modals, setModals] = React.useState({ vfd: false, edit: false, hware: false, hwareEdit: false });
             const [selectedId, setSelectedId] = React.useState(null);
             const [editIdx, setEditIdx] = React.useState(null);
             
-            // Фільтри
-            const [fMan, setFMan] = React.useState('Всі');
-            const [fTag, setFTag] = React.useState('Всі');
-            const [fStat, setFStat] = React.useState('Всі');
+            // Стан фільтрів
+            const [fMan, setFMan] = React.useState('Всі виробники');
+            const [fTag, setFTag] = React.useState('Всі локації');
+            const [fStat, setFStat] = React.useState('Всі статуси');
 
             React.useEffect(() => {
                 db.ref(DB_PATH).on('value', snap => {
@@ -66,123 +66,76 @@
             };
 
             const exportToExcel = () => {
-                const rows = [["Виробник", "Серія", "Заказний номер", "Потужність", "S/N", "Тег", "Статус", "Останнє оновлення"]];
+                const rows = [["Виробник", "Серія", "Заказний номер", "Потужність", "S/N", "Тег", "Статус", "Оновлено"]];
                 Object.values(data.vfds || {}).forEach(v => {
-                    rows.push([
-                        v.manufacturer || "", 
-                        v.series || "", 
-                        v.part || "", 
-                        v.power || "", 
-                        v.serial || "", 
-                        v.tag || "", 
-                        v.status || "", 
-                        v.lastUpd || ""
-                    ]);
+                    rows.push([v.manufacturer||"", v.series||"", v.part||"", v.power||"", v.serial||"", v.tag||"", v.status||"", v.lastUpd||""]);
                 });
-                
-                // Використовуємо точку з комою та BOM для Excel
                 const csvContent = "\uFEFF" + rows.map(e => e.join(";")).join("\n");
                 const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
                 const link = document.createElement("a");
-                link.setAttribute("href", url);
-                link.setAttribute("download", `VFD_Database_${new Date().toLocaleDateString()}.csv`);
-                document.body.appendChild(link);
+                link.href = URL.createObjectURL(blob);
+                link.download = `VFD_Database_${new Date().toLocaleDateString()}.csv`;
                 link.click();
-                document.body.removeChild(link);
             };
 
-            const deleteRegistryItem = (id, name) => {
-                if(confirm(`Видалити ПЧ ${name}?`)) {
-                    db.ref(DB_PATH + 'vfds/' + id).remove();
-                    logAction(`Видалено з реєстру: ${name}`);
-                }
-            };
-
-            const deleteDictItem = (path, index, name) => {
-                if(confirm(`Видалити ${name} з довідника?`)) {
-                    const newList = [...(data.dict[path] || [])];
-                    newList.splice(index, 1);
-                    db.ref(DB_PATH + 'dict/' + path).set(newList);
-                    logAction(`Видалено з довідника: ${name}`);
-                }
-            };
-
+            // ВИПРАВЛЕНА ЛОГІКА ФІЛЬТРАЦІЇ
             const filteredVfds = Object.entries(data.vfds || {}).filter(([id, v]) => {
-                return (fMan === 'Всі' || v.manufacturer === fMan) &&
-                       (fTag === 'Всі' || v.tag === fTag) &&
-                       (fStat === 'Всі' || v.status === fStat);
+                const matchMan = fMan === 'Всі виробники' || v.manufacturer === fMan;
+                const matchTag = fTag === 'Всі локації' || v.tag === fTag;
+                const matchStat = fStat === 'Всі статуси' || v.status === fStat;
+                return matchMan && matchTag && matchStat;
             });
 
-            // --- МОДАЛКА ПЧ (РЕЄСТР) ---
             const VfdFormModal = ({ mode = 'add', targetId = null }) => {
                 const [form, setForm] = React.useState(mode === 'edit' ? data.vfds[targetId] : { manufacturer: '', series: '', part: '', power: '', tag: '', status: 'Резерв', serial: '' });
                 const hardware = data.dict.hardware || [];
                 const mans = [...new Set(hardware.map(h => h.m))];
-                const modelsForMan = hardware.filter(h => h.m === form.manufacturer);
+                
+                const onSelectModel = (val) => {
+                    const h = hardware[val];
+                    if(h) setForm({...form, manufacturer: h.m, series: h.s, part: h.part, power: h.p});
+                };
 
                 const save = () => {
                     const payload = { ...form, lastUpd: new Date().toLocaleString() };
                     if (mode === 'add') db.ref(DB_PATH + 'vfds').push(payload);
                     else db.ref(DB_PATH + 'vfds/' + targetId).update(payload);
-                    setModals({ ...modals, vfd: false, edit: false });
+                    setModals({ vfd: false, edit: false });
                     logAction(`${mode === 'add' ? 'Додано' : 'Змінено'} ПЧ: ${form.manufacturer} S/N:${form.serial}`);
                 };
 
                 return (
-                    <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4 text-sm">
+                    <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto">
                             <h2 className="text-2xl font-black mb-6 uppercase italic text-blue-600 tracking-tighter">{mode === 'add' ? 'Новий Запис' : 'Редагування'}</h2>
                             <div className="space-y-4">
+                                {mode === 'add' && (
+                                    <select className="w-full border-2 p-3 rounded-xl bg-blue-50 font-bold" onChange={e => onSelectModel(e.target.value)}>
+                                        <option value="">-- Оберіть модель з Довідника --</option>
+                                        {hardware.map((h, i) => <option key={i} value={i}>{h.m} {h.s} ({h.p} кВт)</option>)}
+                                    </select>
+                                )}
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Виробник</label>
-                                        <select className="w-full border-2 p-3 rounded-xl font-bold bg-white" value={form.manufacturer} onChange={e => setForm({...form, manufacturer: e.target.value})}>
-                                            <option value="">Оберіть...</option>
-                                            {mans.map(m => <option key={m} value={m}>{m}</option>)}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Модель</label>
-                                        <select className="w-full border-2 p-3 rounded-xl font-bold bg-white" value={form.series} onChange={e => {
-                                            const h = hardware.find(item => item.s === e.target.value && item.m === form.manufacturer);
-                                            if (h) setForm({...form, series: h.s, part: h.part, power: h.p});
-                                            else setForm({...form, series: e.target.value});
-                                        }}>
-                                            <option value="">Оберіть...</option>
-                                            {modelsForMan.map((h, i) => <option key={i} value={h.s}>{h.s}</option>)}
-                                        </select>
-                                    </div>
+                                    <input placeholder="Виробник" value={form.manufacturer} className="border-2 p-3 rounded-xl w-full" onChange={e => setForm({...form, manufacturer: e.target.value})} />
+                                    <input placeholder="Серія" value={form.series} className="border-2 p-3 rounded-xl w-full" onChange={e => setForm({...form, series: e.target.value})} />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Заказний код</label>
-                                        <input value={form.part} className="bg-slate-50 border-2 p-3 rounded-xl w-full font-mono" onChange={e => setForm({...form, part: e.target.value})} />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-blue-600 uppercase ml-2 italic">Серійний номер</label>
-                                        <input value={form.serial} className="border-2 border-blue-200 p-3 rounded-xl w-full font-bold focus:border-blue-600 outline-none" onChange={e => setForm({...form, serial: e.target.value})} />
-                                    </div>
+                                    <input placeholder="Заказний код" value={form.part} className="border-2 p-3 rounded-xl w-full" onChange={e => setForm({...form, part: e.target.value})} />
+                                    <input placeholder="S/N (Серійний номер)" value={form.serial} className="border-2 border-blue-200 p-3 rounded-xl w-full font-bold" onChange={e => setForm({...form, serial: e.target.value})} />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">кВт</label>
-                                        <input value={form.power} className="border-2 p-3 rounded-xl w-full font-bold" onChange={e => setForm({...form, power: e.target.value})} />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase ml-2">Тег Локація</label>
-                                        <select className="border-2 p-3 rounded-xl font-bold text-blue-600 w-full" value={form.tag} onChange={e => setForm({...form, tag: e.target.value})}>
-                                            <option value="">Оберіть...</option>
-                                            {(data.dict.tags || []).map(t => <option key={t} value={t}>{t}</option>)}
-                                        </select>
-                                    </div>
+                                    <input placeholder="кВт" value={form.power} className="border-2 p-3 rounded-xl w-full" onChange={e => setForm({...form, power: e.target.value})} />
+                                    <select className="border-2 p-3 rounded-xl font-bold text-blue-600" value={form.tag} onChange={e => setForm({...form, tag: e.target.value})}>
+                                        <option value="">Оберіть Тег...</option>
+                                        {(data.dict.tags || []).map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
                                 </div>
-                                <select className="w-full border-2 p-3 rounded-xl bg-slate-50 font-black uppercase tracking-widest" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                                <select className="w-full border-2 p-3 rounded-xl bg-slate-50 font-black" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
                                     {["Резерв", "В експлуатації", "В ремонті", "Списаний"].map(s => <option key={s} value={s}>{s}</option>)}
                                 </select>
-                                <div className="flex gap-4 pt-4 font-black">
-                                    <button onClick={() => setModals({vfd:false, edit:false})} className="flex-1 text-slate-300 uppercase tracking-widest">Назад</button>
-                                    <button className="flex-[2] bg-blue-600 text-white p-4 rounded-2xl shadow-xl uppercase tracking-widest" onClick={save}>Зберегти</button>
+                                <div className="flex gap-4 pt-4">
+                                    <button onClick={() => setModals({vfd:false, edit:false})} className="flex-1 font-bold text-slate-300 uppercase">Назад</button>
+                                    <button className="flex-[2] bg-blue-600 text-white p-4 rounded-2xl font-black uppercase tracking-widest shadow-lg" onClick={save}>Зберегти</button>
                                 </div>
                             </div>
                         </div>
@@ -190,15 +143,14 @@
                 );
             };
 
-            const HwareModal = ({ mode = 'add', index = null }) => {
+            const HwareFormModal = ({ mode = 'add', index = null }) => {
                 const [h, setH] = React.useState(mode === 'edit' ? data.dict.hardware[index] : { m: '', s: '', p: '', part: '' });
                 const save = () => {
-                    if(!h.m || !h.s || !h.p || !h.part) return alert("Заповніть всі поля!");
+                    if(!h.m || !h.s) return alert("Заповніть назву!");
                     const newList = [...(data.dict.hardware || [])];
                     if (mode === 'add') newList.push(h); else newList[index] = h;
                     db.ref(DB_PATH + 'dict/hardware').set(newList);
                     setModals({...modals, hware: false, hwareEdit: false});
-                    logAction(`Довідник: ${mode === 'add' ? 'додано' : 'змінено'} модель ${h.m}`);
                 };
                 return (
                     <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4">
@@ -207,32 +159,32 @@
                             <div className="space-y-4">
                                 <input placeholder="Виробник" value={h.m} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, m: e.target.value})} />
                                 <input placeholder="Серія" value={h.s} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, s: e.target.value})} />
-                                <input placeholder="кВт" value={h.p} className="w-full border-2 p-3 rounded-xl font-bold" onChange={e => setH({...h, p: e.target.value})} />
-                                <input placeholder="Заказний код" value={h.part} className="w-full border-2 p-3 rounded-xl font-mono text-sm" onChange={e => setH({...h, part: e.target.value})} />
+                                <input placeholder="кВт" value={h.p} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, p: e.target.value})} />
+                                <input placeholder="Код" value={h.part} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, part: e.target.value})} />
                             </div>
                             <div className="flex gap-2 mt-8 font-black">
-                                <button onClick={() => setModals({...modals, hware: false, hwareEdit: false})} className="flex-1 text-slate-300 uppercase tracking-widest">Назад</button>
-                                <button className="flex-[2] bg-slate-900 text-white p-3 rounded-xl uppercase tracking-widest" onClick={save}>ОК</button>
+                                <button onClick={() => setModals({...modals, hware: false, hwareEdit: false})} className="flex-1 text-slate-300 uppercase">Назад</button>
+                                <button className="flex-[2] bg-slate-900 text-white p-3 rounded-xl uppercase shadow-lg" onClick={save}>ОК</button>
                             </div>
                         </div>
                     </div>
                 );
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white font-black animate-pulse text-2xl uppercase tracking-tighter italic">VFD Enterprise Connecting...</div>;
+            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white font-black animate-pulse uppercase tracking-tighter">VFD Enterprise Syncing...</div>;
 
-            const vfdList = Object.entries(data.vfds || {});
+            const allVfds = Object.entries(data.vfds || {});
 
             return (
                 <div className="max-w-7xl mx-auto p-4 md:p-8">
                     <header className="flex justify-between items-center mb-10 bg-white p-6 rounded-[2.5rem] shadow-sm border border-slate-100">
                         <div className="flex items-center gap-3">
-                            <div className="bg-blue-600 w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl italic">V</div>
-                            <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase">VFD <span className="text-blue-600">Pro System</span></h1>
+                            <div className="bg-blue-600 w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-xl italic underline underline-offset-4 decoration-2">V</div>
+                            <h1 className="text-2xl font-black text-slate-900 tracking-tighter uppercase leading-none">VFD <span className="text-blue-600 font-light italic">Pro</span></h1>
                         </div>
                         <div className="flex gap-3">
-                             <button onClick={exportToExcel} className="bg-slate-100 px-6 py-3 rounded-2xl font-bold text-slate-500 hover:bg-slate-200 transition-all">Експорт Excel</button>
-                             <button onClick={() => setModals({...modals, vfd: true})} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-bold shadow-xl shadow-blue-100 hover:scale-105 transition-all uppercase tracking-widest">+ Реєстрація</button>
+                             <button onClick={exportToExcel} className="bg-slate-100 px-6 py-3 rounded-2xl font-bold text-slate-500 hover:bg-slate-200 transition-all uppercase text-[10px] tracking-widest border">Excel</button>
+                             <button onClick={() => setModals({...modals, vfd: true})} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black shadow-xl shadow-blue-100 hover:scale-105 transition-all uppercase tracking-widest text-[11px]">+ Реєстрація</button>
                         </div>
                     </header>
 
@@ -246,30 +198,30 @@
 
                     {/* Filter Panel */}
                     {(activeTab === 'table' || activeTab === 'tiles') && (
-                        <div className="flex flex-wrap gap-4 mb-6 bg-slate-50 p-4 rounded-2xl border-2 border-slate-100 shadow-inner">
-                            <div className="text-[10px] font-black text-slate-300 uppercase pt-2 pl-2">Фільтрація:</div>
-                            <select className="p-2 border rounded-xl text-xs font-bold bg-white" onChange={e => setFMan(e.target.value)}>
+                        <div className="flex flex-wrap gap-4 mb-6 bg-slate-200/40 p-3 rounded-2xl border border-slate-200 shadow-inner">
+                            <select className="p-2 border rounded-xl text-xs font-bold bg-white outline-none" value={fMan} onChange={e => setFMan(e.target.value)}>
                                 <option>Всі виробники</option>
-                                {[...new Set(vfdList.map(([id, v]) => v.manufacturer))].map(m => <option key={m}>{m}</option>)}
+                                {[...new Set(allVfds.map(([id, v]) => v.manufacturer))].filter(Boolean).map(m => <option key={m}>{m}</option>)}
                             </select>
-                            <select className="p-2 border rounded-xl text-xs font-bold bg-white" onChange={e => setFTag(e.target.value)}>
+                            <select className="p-2 border rounded-xl text-xs font-bold bg-white outline-none" value={fTag} onChange={e => setFTag(e.target.value)}>
                                 <option>Всі локації</option>
                                 {(data.dict.tags || []).map(t => <option key={t}>{t}</option>)}
                             </select>
-                            <select className="p-2 border rounded-xl text-xs font-bold bg-white" onChange={e => setFStat(e.target.value)}>
+                            <select className="p-2 border rounded-xl text-xs font-bold bg-white outline-none" value={fStat} onChange={e => setFStat(e.target.value)}>
                                 <option>Всі статуси</option>
                                 {["Резерв", "В експлуатації", "В ремонті", "Списаний"].map(s => <option key={s}>{s}</option>)}
                             </select>
+                            <button onClick={() => {setFMan('Всі виробники'); setFTag('Всі локації'); setFStat('Всі статуси');}} className="text-[9px] font-black uppercase text-blue-600 ml-auto mr-4">Скинути</button>
                         </div>
                     )}
 
                     {activeTab === 'dash' && (
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             {[
-                                {l: 'Усього одиниць', v: vfdList.length, c: 'text-slate-900'},
-                                {l: 'В експлуатації', v: vfdList.filter(([id, v])=>v.status==='В експлуатації').length, c: 'text-emerald-500'},
-                                {l: 'Резервний фонд', v: vfdList.filter(([id, v])=>v.status==='Резерв').length, c: 'text-blue-500'},
-                                {l: 'Технічний ремонт', v: vfdList.filter(([id, v])=>v.status==='В ремонті').length, c: 'text-rose-500'}
+                                {l: 'Усього одиниць', v: allVfds.length, c: 'text-slate-900'},
+                                {l: 'В роботі', v: allVfds.filter(([id, v])=>v.status==='В експлуатації').length, c: 'text-emerald-500'},
+                                {l: 'Резервний фонд', v: allVfds.filter(([id, v])=>v.status==='Резерв').length, c: 'text-blue-500'},
+                                {l: 'У ремонті', v: allVfds.filter(([id, v])=>v.status==='В ремонті').length, c: 'text-rose-500'}
                             ].map((s, i) => (
                                 <div key={i} className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100"><p className="text-[10px] font-black text-slate-300 uppercase mb-2 tracking-widest italic">{s.l}</p><p className={`text-6xl font-black tracking-tighter ${s.c}`}>{s.v}</p></div>
                             ))}
@@ -280,20 +232,23 @@
                         <div className="bg-white rounded-[2.5rem] shadow-sm border overflow-hidden">
                             <table className="w-full text-left">
                                 <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b tracking-widest">
-                                    <tr><th className="p-6">Дія</th><th className="p-6">Пристрій</th><th className="p-6">кВт</th><th className="p-6">S/N</th><th className="p-6">Тег</th><th className="p-6">Статус</th></tr>
+                                    <tr><th className="p-6">Дія</th><th className="p-6">Пристрій</th><th className="p-6">кВт</th><th className="p-6">S/N</th><th className="p-6">Локація</th><th className="p-6">Статус</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100 text-sm">
                                     {filteredVfds.map(([id, v]) => (
                                         <tr key={id} className="hover:bg-slate-50 transition-colors group">
                                             <td className="p-6 flex gap-3">
-                                                <button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="text-blue-500 text-xl hover:scale-125 transition-all">✎</button>
-                                                <button onClick={() => deleteRegistryItem(id, v.manufacturer)} className="text-red-200 group-hover:text-red-500 transition-all font-bold text-xl">🗑</button>
+                                                <button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="text-blue-500 text-xl font-bold hover:scale-125 transition-all">✎</button>
+                                                <button onClick={() => {if(confirm(`Видалити ${v.manufacturer}?`)) db.ref(DB_PATH+'vfds/'+id).remove();}} className="text-red-200 group-hover:text-red-500 transition-all font-bold text-xl">🗑</button>
                                             </td>
-                                            <td className="p-6"><div className="font-black text-slate-800 uppercase tracking-tighter leading-none mb-1">{v.manufacturer} {v.series}</div><div className="text-[10px] text-slate-400 font-mono italic uppercase">{v.part}</div></td>
-                                            <td className="p-6 font-black text-slate-700">{v.power}</td>
+                                            <td className="p-6 leading-tight">
+                                                <div className="font-black text-slate-800 uppercase tracking-tighter mb-1">{v.manufacturer} {v.series}</div>
+                                                <div className="text-[10px] text-slate-400 font-mono italic uppercase">{v.part}</div>
+                                            </td>
+                                            <td className="p-6 font-black text-slate-600 italic tracking-tighter">{v.power} кВт</td>
                                             <td className="p-6 font-bold text-slate-400 italic uppercase">{v.serial}</td>
                                             <td className="p-6 font-black text-blue-600 italic underline underline-offset-8 decoration-blue-100 tracking-tighter">{v.tag}</td>
-                                            <td className="p-6"><span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${v.status === 'В експлуатації' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>{v.status}</span></td>
+                                            <td className="p-6"><span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${v.status === 'В експлуатації' ? 'bg-emerald-100 text-emerald-600 font-bold border border-emerald-200' : 'bg-amber-100 text-amber-600 font-bold border border-amber-200'}`}>{v.status}</span></td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -305,17 +260,16 @@
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                             {filteredVfds.map(([id, v]) => (
                                 <div key={id} className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 relative hover:shadow-xl transition-all group overflow-hidden border-t-8 border-t-slate-800 hover:border-t-blue-600">
-                                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase mb-1">{v.manufacturer}</h3>
+                                    <h3 className="text-2xl font-black text-slate-900 tracking-tighter uppercase mb-1 leading-none">{v.manufacturer}</h3>
                                     <p className="text-[10px] font-black text-slate-400 uppercase mb-6 italic tracking-widest">{v.series}</p>
-                                    <div className="space-y-4 border-t pt-6 font-bold text-sm">
-                                        <div className="flex justify-between"><span className="text-[9px] text-slate-300 uppercase italic">Серійник:</span><span className="text-slate-600 font-mono uppercase">{v.serial}</span></div>
-                                        <div className="flex justify-between"><span className="text-[9px] text-slate-300 uppercase italic">Тег:</span><span className="text-blue-600 italic underline decoration-blue-50">{v.tag}</span></div>
-                                        <div className="flex justify-between"><span className="text-[9px] text-slate-300 uppercase italic">кВт:</span><span className="font-black">{v.power}</span></div>
+                                    <div className="space-y-4 border-t pt-6 font-bold text-sm tracking-tighter">
+                                        <div className="flex justify-between border-b pb-2 border-slate-50"><span className="text-[9px] text-slate-300 uppercase italic">Серійник:</span><span className="uppercase text-slate-600">{v.serial}</span></div>
+                                        <div className="flex justify-between border-b pb-2 border-slate-50"><span className="text-[9px] text-slate-300 uppercase italic">Локація:</span><span className="text-blue-600 underline underline-offset-4 decoration-blue-100 italic">{v.tag}</span></div>
+                                        <div className="flex justify-between border-b pb-2 border-slate-50"><span className="text-[9px] text-slate-300 uppercase italic">Потужність:</span><span className="font-black">{v.power} кВт</span></div>
                                         <div className="pt-4 flex justify-between items-center">
                                             <span className="px-3 py-1 bg-slate-50 rounded-full text-[10px] font-black uppercase tracking-widest text-slate-400 border">{v.status}</span>
                                             <div className="flex gap-4">
-                                                <button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="text-blue-500 text-xs font-black uppercase">✎</button>
-                                                <button onClick={() => deleteRegistryItem(id, v.manufacturer)} className="text-red-400 text-xs font-black uppercase">✕</button>
+                                                <button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="text-blue-500 text-xs font-black uppercase underline decoration-2">✎ Змінити</button>
                                             </div>
                                         </div>
                                     </div>
@@ -328,16 +282,16 @@
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100">
                                 <div className="flex justify-between items-center mb-8 border-b pb-4">
-                                    <h3 className="font-black text-xs uppercase text-blue-600 italic tracking-widest">1. Каталог обладнання</h3>
+                                    <h3 className="font-black text-xs uppercase text-blue-600 italic tracking-widest underline underline-offset-8 decoration-4">1. Каталог обладнання</h3>
                                     <button onClick={() => setModals({...modals, hware: true})} className="bg-slate-900 text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase shadow-lg shadow-slate-200">+ ДОДАТИ</button>
                                 </div>
                                 <div className="space-y-3 max-h-96 overflow-y-auto pr-2 scrollbar-hide">
                                     {(data.dict.hardware || []).map((h, i) => (
                                         <div key={i} className="p-5 bg-slate-50 rounded-3xl border border-slate-100 flex justify-between items-center group transition-all hover:bg-white hover:shadow-md">
-                                            <div><p className="font-black text-sm uppercase leading-none mb-1 tracking-tighter text-slate-800">{h.m} {h.s}</p><p className="text-[10px] text-slate-400 font-mono italic">{h.part} | {h.p} кВт</p></div>
+                                            <div><p className="font-black text-sm uppercase leading-none mb-1 tracking-tighter text-slate-800 italic underline decoration-slate-200">{h.m} {h.s}</p><p className="text-[10px] text-slate-400 font-mono italic">{h.part} | {h.p} кВт</p></div>
                                             <div className="flex gap-4 opacity-0 group-hover:opacity-100 transition-all">
                                                 <button onClick={() => {setEditIdx(i); setModals({...modals, hwareEdit: true})}} className="text-blue-500 font-black text-xs uppercase tracking-tighter">✎</button>
-                                                <button onClick={() => deleteDictItem('hardware', i, `${h.m} ${h.s}`)} className="text-red-400 font-black text-xs uppercase tracking-tighter">Видалити</button>
+                                                <button onClick={() => {if(confirm(`Видалити модель ${h.s}?`)) { const nl=[...(data.dict.hardware||[])]; nl.splice(i,1); db.ref(DB_PATH+'dict/hardware').set(nl); }}} className="text-red-400 font-black text-xs uppercase tracking-tighter">✕</button>
                                             </div>
                                         </div>
                                     ))}
@@ -345,14 +299,14 @@
                             </div>
                             <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100">
                                 <div className="flex justify-between items-center mb-8 border-b pb-4">
-                                    <h3 className="font-black text-xs uppercase text-emerald-600 italic tracking-widest">2. Теги встановлення</h3>
+                                    <h3 className="font-black text-xs uppercase text-emerald-600 italic tracking-widest underline underline-offset-8 decoration-4">2. Теги встановлення</h3>
                                     <button onClick={() => {const t=prompt("Введіть назву Тегу:"); if(t) db.ref(DB_PATH+'dict/tags').set([...(data.dict.tags||[]), t])}} className="bg-emerald-600 text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase shadow-lg shadow-emerald-50">+ ТЕГ</button>
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                     {(data.dict.tags || []).map((t, i) => (
-                                        <div key={i} className="px-5 py-2.5 bg-emerald-50 text-emerald-700 rounded-2xl text-[10px] font-black uppercase flex items-center gap-3 border border-emerald-100">
+                                        <div key={i} className="px-5 py-2.5 bg-emerald-50 text-emerald-700 rounded-2xl text-[10px] font-black uppercase flex items-center gap-3 border border-emerald-100 italic tracking-tighter">
                                             {t}
-                                            <button onClick={() => deleteDictItem('tags', i, t)} className="text-emerald-300 hover:text-emerald-900 font-black transition-colors">✕</button>
+                                            <button onClick={() => {if(confirm(`Видалити тег ${t}?`)) { const nl=[...(data.dict.tags||[])]; nl.splice(i,1); db.ref(DB_PATH+'dict/tags').set(nl); }}} className="text-emerald-300 hover:text-emerald-900 font-black transition-colors">✕</button>
                                         </div>
                                     ))}
                                 </div>
@@ -362,7 +316,7 @@
 
                     {activeTab === 'log' && (
                         <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-10 max-h-[600px] overflow-y-auto scrollbar-hide">
-                            <h3 className="text-xs font-black uppercase text-slate-300 mb-8 italic tracking-[0.3em] border-b pb-4">Cloud Transaction History</h3>
+                            <h3 className="text-xs font-black uppercase text-slate-300 mb-8 italic tracking-[0.3em] border-b pb-4">Transaction Activity Log</h3>
                             <div className="space-y-6">
                                 {Object.values(data.log || {}).reverse().slice(0, 100).map((l, i) => (
                                     <div key={i} className="flex gap-8 border-l-4 pl-8 py-1 relative border-slate-100 hover:border-blue-500 transition-all">
@@ -377,7 +331,7 @@
                     )}
 
                     {(modals.vfd || modals.edit) && <VfdFormModal mode={modals.edit ? 'edit' : 'add'} targetId={selectedId} />}
-                    {(modals.hware || modals.hwareEdit) && <HwareModal mode={modals.hwareEdit ? 'edit' : 'add'} index={editIdx} />}
+                    {(modals.hware || modals.hwareEdit) && <HwareFormModal mode={modals.hwareEdit ? 'edit' : 'add'} index={editIdx} />}
                 </div>
             );
         }
