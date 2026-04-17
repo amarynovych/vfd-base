@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VFD Enterprise Pro</title>
+    <title>VFD Enterprise Pro v4</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -11,16 +11,18 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
         .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 700; }
-        .modal-overlay { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        .modal-overlay { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(5px); }
+        .card-shadow { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
+        // --- CONFIG ---
         const firebaseConfig = {
             apiKey: "AIzaSyAtl9abE3Sgap2G7tzwVK1BQf5ptOxOBFs",
             authDomain: "vfd-db.firebaseapp.com",
@@ -33,17 +35,13 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
-        const DB_PATH = 'vfd_v3_enterprise/';
+        const DB_PATH = 'vfd_v4_enterprise/';
 
         function App() {
-            const [data, setData] = React.useState({ 
-                vfds: {}, 
-                log: {}, 
-                dict: { users: [], hardware: [], tags: [] } 
-            });
+            const [data, setData] = React.useState({ vfds: {}, log: {}, dict: { users: [], hardware: [], tags: [] } });
             const [loading, setLoading] = React.useState(true);
             const [activeTab, setActiveTab] = React.useState('dash');
-            const [isAddModal, setIsAddModal] = React.useState(false);
+            const [modals, setModals] = React.useState({ vfd: false, hardware: false, tag: false, user: false });
 
             React.useEffect(() => {
                 db.ref(DB_PATH).on('value', snap => {
@@ -52,201 +50,49 @@
                 });
             }, []);
 
-            const sync = (path, val) => db.ref(DB_PATH + path).set(val);
-            const log = (msg, user) => db.ref(DB_PATH + 'log').push({ ts: new Date().toLocaleString(), user, msg });
+            const logAction = (msg, user) => db.ref(DB_PATH + 'log').push({ ts: new Date().toLocaleString(), user, msg });
 
-            // --- КОМПОНЕНТ: ВІКНО ДОДАВАННЯ ПЧ ---
+            // --- МОДАЛЬНЕ ВІКНО ДОДАВАННЯ ПЧ ---
             const AddVfdModal = () => {
-                const [form, setForm] = React.useState({ m: '', s: '', part: '', power: '', tag: '', status: 'Резерв', user: '', pin: '' });
+                const [form, setForm] = React.useState({ manufacturer: '', series: '', part: '', power: '', tag: '', status: 'Резерв', user: '', pin: '' });
                 
+                // Фільтрація списків для послідовної вибірки
+                const manufacturers = [...new Set((data.dict.hardware || []).map(h => h.m))];
+                const seriesOptions = [...new Set((data.dict.hardware || []).filter(h => h.m === form.manufacturer).map(h => h.s))];
+                const partOptions = (data.dict.hardware || []).filter(h => h.m === form.manufacturer && h.s === form.series).map(h => h.part);
+
                 const handleSave = () => {
                     const master = (data.dict.users || []).find(u => u.name === form.user);
                     if (!master || master.pin !== form.pin) return alert("Невірний PIN!");
-                    
-                    const newKey = db.ref(DB_PATH + 'vfds').push().key;
-                    db.ref(DB_PATH + 'vfds/' + newKey).set({ ...form, pin: null, lastUpd: new Date().toLocaleString() });
-                    log(`Додано ПЧ: ${form.m} ${form.s} на ${form.tag}`, form.user);
-                    setIsAddModal(false);
+                    db.ref(DB_PATH + 'vfds').push({ ...form, pin: null, lastUpd: new Date().toLocaleString() });
+                    logAction(`Додано ПЧ: ${form.manufacturer} ${form.series} (${form.part}) на ${form.tag}`, form.user);
+                    setModals({...modals, vfd: false});
                 };
 
                 return (
                     <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
-                            <div className="bg-slate-900 p-6 text-white flex justify-between">
-                                <h2 className="text-xl font-bold">Реєстрація нового ПЧ</h2>
-                                <button onClick={() => setIsAddModal(false)}>✕</button>
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl overflow-hidden">
+                            <div className="bg-blue-600 p-6 text-white flex justify-between items-center">
+                                <h2 className="text-xl font-bold italic">Реєстрація нового ПЧ</h2>
+                                <button onClick={() => setModals({...modals, vfd: false})} className="text-2xl">✕</button>
                             </div>
-                            <div className="p-8 grid grid-cols-2 gap-6">
-                                <div className="space-y-4">
-                                    <label className="block">
-                                        <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Виберіть модель (з довідника)</span>
-                                        <select className="w-full mt-1 border-2 p-3 rounded-xl focus:border-blue-500 outline-none" 
-                                            onChange={e => {
-                                                const h = data.dict.hardware[e.target.value];
-                                                setForm({...form, m: h.m, s: h.s, part: h.part});
-                                            }}>
-                                            <option>-- Виберіть модель --</option>
-                                            {data.dict.hardware?.map((h, i) => <option key={i} value={i}>{h.m} | {h.s} ({h.part})</option>)}
-                                        </select>
-                                    </label>
-                                    <input placeholder="Потужність, кВт" className="w-full border-2 p-3 rounded-xl" onChange={e => setForm({...form, power: e.target.value})} />
-                                    <select className="w-full border-2 p-3 rounded-xl" onChange={e => setForm({...form, tag: e.target.value})}>
-                                        <option>-- Виберіть Тег встановлення --</option>
-                                        {data.dict.tags?.map((t, i) => <option key={i}>{t}</option>)}
+                            <div className="p-8 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <select className="border-2 p-3 rounded-xl" onChange={e => setForm({...form, manufacturer: e.target.value, series: '', part: ''})}>
+                                        <option value="">-- Виробник --</option>
+                                        {manufacturers.map(m => <option key={m}>{m}</option>)}
+                                    </select>
+                                    <select className="border-2 p-3 rounded-xl" disabled={!form.manufacturer} onChange={e => setForm({...form, series: e.target.value, part: ''})}>
+                                        <option value="">-- Серія --</option>
+                                        {seriesOptions.map(s => <option key={s}>{s}</option>)}
                                     </select>
                                 </div>
-                                <div className="space-y-4">
-                                    <select className="w-full border-2 p-3 rounded-xl bg-blue-50 font-bold" onChange={e => setForm({...form, status: e.target.value})}>
-                                        {["Резерв", "В експлуатації", "В ремонті", "Списаний"].map(s => <option key={s}>{s}</option>)}
-                                    </select>
-                                    <div className="pt-4 border-t italic text-slate-400 text-xs">Підтвердження дії:</div>
-                                    <select className="w-full border-2 p-3 rounded-xl" onChange={e => setForm({...form, user: e.target.value})}>
-                                        <option>-- Хто вносить? --</option>
-                                        {data.dict.users?.map((u, i) => <option key={i}>{u.name}</option>)}
-                                    </select>
-                                    <input type="password" placeholder="Ваш PIN" className="w-full border-2 p-3 rounded-xl" onChange={e => setForm({...form, pin: e.target.value})} />
-                                </div>
-                            </div>
-                            <div className="p-6 bg-slate-50 border-t flex gap-4">
-                                <button className="flex-1 p-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg" onClick={handleSave}>ЗБЕРЕГТИ В БАЗУ</button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            };
-
-            if (loading) return <div className="h-screen flex items-center justify-center font-black text-slate-300 animate-pulse">VFD ENTERPRISE CORE LOADING...</div>;
-
-            return (
-                <div className="max-w-7xl mx-auto p-4 md:p-8">
-                    {/* Top Bar */}
-                    <div className="flex justify-between items-center mb-8">
-                        <div>
-                            <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">VFD <span className="text-blue-600">Pro System</span></h1>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Enterprise Database v3.0</p>
-                        </div>
-                        <button onClick={() => setIsAddModal(true)} className="bg-slate-900 text-white px-8 py-4 rounded-2xl font-bold shadow-2xl hover:bg-blue-600 transition-all">+ ДОДАТИ ПЧ</button>
-                    </div>
-
-                    {/* Navigation */}
-                    <div className="flex gap-8 mb-8 border-b-2 border-slate-200">
-                        {['dash', 'table', 'dict', 'log'].map(t => (
-                            <button key={t} onClick={() => setActiveTab(t)} className={`pb-4 px-2 uppercase text-xs font-black tracking-widest transition-all ${activeTab === t ? 'tab-active' : 'text-slate-400'}`}>
-                                {t === 'dash' ? 'Статистика' : t === 'table' ? 'Реєстр' : t === 'dict' ? 'Довідник' : 'Журнал'}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* View: Dashboard */}
-                    {activeTab === 'dash' && (
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                            {[
-                                {label: 'Всього', val: Object.keys(data.vfds || {}).length, color: 'text-slate-900'},
-                                {label: 'В роботі', val: Object.values(data.vfds || {}).filter(v => v.status === 'В експлуатації').length, color: 'text-emerald-600'},
-                                {label: 'Резерв', val: Object.values(data.vfds || {}).filter(v => v.status === 'Резерв').length, color: 'text-blue-600'},
-                                {label: 'Ремонт', val: Object.values(data.vfds || {}).filter(v => v.status === 'В ремонті').length, color: 'text-rose-600'},
-                            ].map((s, i) => (
-                                <div key={i} className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{s.label}</p>
-                                    <p className={`text-4xl font-black ${s.color}`}>{s.val}</p>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {/* View: Table */}
-                    {activeTab === 'table' && (
-                        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                            <table className="w-full text-left">
-                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                                    <tr>
-                                        <th className="p-6">Пристрій / Модель</th>
-                                        <th className="p-6">Заказний номер</th>
-                                        <th className="p-6">кВт</th>
-                                        <th className="p-6">Тег встановлення</th>
-                                        <th className="p-6">Статус</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {Object.entries(data.vfds || {}).map(([id, v]) => (
-                                        <tr key={id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="p-6 font-bold text-slate-700">{v.m} <span className="text-slate-400 font-medium ml-2">{v.s}</span></td>
-                                            <td className="p-6 font-mono text-xs text-slate-400">{v.part}</td>
-                                            <td className="p-6 font-bold">{v.power}</td>
-                                            <td className="p-6 text-blue-600 font-medium underline underline-offset-4 decoration-blue-200">{v.tag}</td>
-                                            <td className="p-6">
-                                                <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${v.status === 'В експлуатації' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                    {v.status}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {/* View: Dictionary */}
-                    {activeTab === 'dict' && (
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                            {/* Group 1: Hardware */}
-                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                <h3 className="font-black text-xs uppercase tracking-widest text-blue-600 mb-6 underline">1. Каталог обладнання</h3>
-                                <div className="space-y-3 mb-6">
-                                    {data.dict.hardware?.map((h, i) => <div key={i} className="text-xs p-3 bg-slate-50 rounded-xl font-medium">{h.m} {h.s} <br/><span className="text-slate-400 font-mono">{h.part}</span></div>)}
-                                </div>
-                                <button className="w-full p-3 bg-slate-100 rounded-xl text-[10px] font-black hover:bg-slate-200" onClick={() => {
-                                    const m = prompt("Виробник?"); const s = prompt("Серія?"); const part = prompt("Заказний номер?");
-                                    sync('dict/hardware', [...(data.dict.hardware || []), {m, s, part}]);
-                                }}>+ ДОДАТИ МОДЕЛЬ</button>
-                            </div>
-
-                            {/* Group 2: Tags */}
-                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                <h3 className="font-black text-xs uppercase tracking-widest text-emerald-600 mb-6 underline">2. Теги встановлення</h3>
-                                <div className="grid grid-cols-2 gap-2 mb-6">
-                                    {data.dict.tags?.map((t, i) => <div key={i} className="text-[10px] p-2 bg-emerald-50 text-emerald-700 rounded-lg font-bold">{t}</div>)}
-                                </div>
-                                <button className="w-full p-3 bg-slate-100 rounded-xl text-[10px] font-black hover:bg-slate-200" onClick={() => {
-                                    const t = prompt("Назва тегу (напр: P-101)?");
-                                    sync('dict/tags', [...(data.dict.tags || []), t]);
-                                }}>+ ДОДАТИ ТЕГ</button>
-                            </div>
-
-                            {/* Group 3: Users */}
-                            <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                                <h3 className="font-black text-xs uppercase tracking-widest text-rose-600 mb-6 underline">3. Відповідальні</h3>
-                                <div className="space-y-3 mb-6">
-                                    {data.dict.users?.map((u, i) => <div key={i} className="flex justify-between items-center p-3 bg-rose-50 rounded-xl text-xs font-bold"><span>{u.name}</span> <span className="font-mono text-rose-300 italic">PIN: {u.pin}</span></div>)}
-                                </div>
-                                <button className="w-full p-3 bg-slate-100 rounded-xl text-[10px] font-black hover:bg-slate-200" onClick={() => {
-                                    const name = prompt("Ім'я?"); const pin = prompt("Створіть PIN?");
-                                    sync('dict/users', [...(data.dict.users || []), {name, pin}]);
-                                }}>+ ДОДАТИ ПЕРСОНУ</button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* View: Log */}
-                    {activeTab === 'log' && (
-                        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 space-y-4">
-                            {Object.values(data.log || {}).reverse().map((l, i) => (
-                                <div key={i} className="flex gap-6 border-b pb-4 border-slate-50 last:border-0">
-                                    <span className="text-[10px] font-mono text-slate-300 w-32 shrink-0">{l.ts}</span>
-                                    <span className="text-xs font-black text-blue-600 w-24 shrink-0 uppercase">{l.user}</span>
-                                    <span className="text-xs text-slate-600 font-medium">{l.msg}</span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {isAddModal && <AddVfdModal />}
-                </div>
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+                                <select className="w-full border-2 p-3 rounded-xl" disabled={!form.series} onChange={e => setForm({...form, part: e.target.value})}>
+                                    <option value="">-- Заказний код (Part Number) --</option>
+                                    {partOptions.map(p => <option key={p}>{p}</option>)}
+                                </select>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input placeholder="кВт" type="number" className="border-2 p-3 rounded-xl" onChange={e => setForm({...form, power: e.target.value})} />
+                                    <select className="border-2 p-3 rounded-xl" onChange={e => setForm({...form, tag: e.target.value})}>
+                                        <option value="">-- Тег встановлення --</option>
+                                        {(data.dict.
