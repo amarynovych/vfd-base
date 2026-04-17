@@ -95,4 +95,206 @@
                                     <input placeholder="кВт" type="number" className="border-2 p-3 rounded-xl" onChange={e => setForm({...form, power: e.target.value})} />
                                     <select className="border-2 p-3 rounded-xl" onChange={e => setForm({...form, tag: e.target.value})}>
                                         <option value="">-- Тег встановлення --</option>
-                                        {(data.dict.
+                                        {(data.dict.tags || []).map(t => <option key={t}>{t}</option>)}
+                                    </select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border border-dashed border-slate-200">
+                                    <select className="p-3 rounded-xl border" onChange={e => setForm({...form, user: e.target.value})}>
+                                        <option value="">-- Відповідальний --</option>
+                                        {(data.dict.users || []).map(u => <option key={u.name}>{u.name}</option>)}
+                                    </select>
+                                    <input type="password" placeholder="PIN" className="p-3 rounded-xl border text-center font-bold tracking-widest" onChange={e => setForm({...form, pin: e.target.value})} />
+                                </div>
+                                <button className="w-full bg-blue-600 text-white font-black p-4 rounded-2xl shadow-lg shadow-blue-100 uppercase" onClick={handleSave}>Внести в базу</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // --- МОДАЛЬНЕ ВІКНО ДОДАННЯ В ДОВІДНИК ---
+            const AddHardwareModal = () => {
+                const [h, setH] = React.useState({ m: '', s: '', part: '' });
+                const save = () => {
+                    db.ref(DB_PATH + 'dict/hardware').set([...(data.dict.hardware || []), h]);
+                    setModals({...modals, hardware: false});
+                };
+                return (
+                    <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50">
+                        <div className="bg-white p-8 rounded-3xl w-96 space-y-4">
+                            <h3 className="font-black text-center text-slate-400 text-xs uppercase italic tracking-widest">Додати модель до каталогу</h3>
+                            <input placeholder="Виробник" className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, m: e.target.value})} />
+                            <input placeholder="Серія" className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, s: e.target.value})} />
+                            <input placeholder="Заказний код" className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, part: e.target.value})} />
+                            <button className="w-full bg-slate-900 text-white p-3 rounded-xl font-bold" onClick={save}>ЗБЕРЕГТИ</button>
+                            <button className="w-full text-slate-400 text-sm" onClick={() => setModals({...modals, hardware: false})}>Скасувати</button>
+                        </div>
+                    </div>
+                );
+            };
+
+            if (loading) return <div className="h-screen flex items-center justify-center font-black text-slate-200 animate-pulse text-4xl italic">VFD CORE SYNC...</div>;
+
+            const list = Object.values(data.vfds || []);
+
+            return (
+                <div className="max-w-7xl mx-auto p-4 md:p-10">
+                    {/* Header */}
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
+                        <div className="text-center md:text-left">
+                            <h1 className="text-4xl font-black text-slate-900 tracking-tighter">VFD <span className="text-blue-600">ENTERPRISE</span></h1>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Live Database Connection</p>
+                        </div>
+                        <button onClick={() => setModals({...modals, vfd: true})} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-5 rounded-3xl font-black shadow-2xl shadow-blue-200 transition-all active:scale-95 uppercase tracking-widest">
+                            + Реєстрація ПЧ
+                        </button>
+                    </div>
+
+                    {/* Navigation */}
+                    <div className="flex flex-wrap gap-6 mb-10 border-b-2 border-slate-200">
+                        {[
+                            {id: 'dash', label: 'Статистика'},
+                            {id: 'table', label: 'Таблиця'},
+                            {id: 'tiles', label: 'Плитки'},
+                            {id: 'dict', label: 'Довідник'},
+                            {id: 'log', label: 'Журнал'}
+                        ].map(t => (
+                            <button key={t.id} onClick={() => setActiveTab(t.id)} className={`pb-4 px-2 text-xs font-black uppercase tracking-widest transition-all ${activeTab === t.id ? 'tab-active' : 'text-slate-400'}`}>
+                                {t.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* DASHBOARD */}
+                    {activeTab === 'dash' && (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            {[
+                                {l: 'Усього', v: list.length, c: 'text-slate-900'},
+                                {l: 'В роботі', v: list.filter(v=>v.status==='В експлуатації').length, c: 'text-emerald-500'},
+                                {l: 'Резерв', v: list.filter(v=>v.status==='Резерв').length, c: 'text-blue-500'},
+                                {l: 'Ремонт', v: list.filter(v=>v.status==='В ремонті').length, c: 'text-rose-500'}
+                            ].map((s, i) => (
+                                <div key={i} className="bg-white p-10 rounded-[2.5rem] card-shadow border border-slate-50">
+                                    <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest mb-2">{s.l}</p>
+                                    <p className={`text-5xl font-black ${s.c}`}>{s.v}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* TABLE VIEW */}
+                    {activeTab === 'table' && (
+                        <div className="bg-white rounded-[2rem] card-shadow overflow-hidden border border-slate-100">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest border-b">
+                                    <tr>
+                                        <th className="p-6">Модель / Заказний код</th>
+                                        <th className="p-6">Потужність</th>
+                                        <th className="p-6">Тег (Локація)</th>
+                                        <th className="p-6">Статус</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                    {list.map((v, i) => (
+                                        <tr key={i} className="hover:bg-slate-50/50">
+                                            <td className="p-6">
+                                                <div className="font-black text-slate-800">{v.manufacturer} {v.series}</div>
+                                                <div className="text-[10px] font-mono text-slate-400">{v.part}</div>
+                                            </td>
+                                            <td className="p-6 font-bold">{v.power} кВт</td>
+                                            <td className="p-6 font-bold text-blue-600 italic underline decoration-blue-100">{v.tag}</td>
+                                            <td className="p-6">
+                                                <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase ${v.status === 'В експлуатації' ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
+                                                    {v.status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {/* TILES VIEW */}
+                    {activeTab === 'tiles' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {list.map((v, i) => (
+                                <div key={i} className="bg-white p-8 rounded-[2rem] card-shadow border border-slate-100 relative group overflow-hidden">
+                                    <div className={`absolute top-0 right-0 h-1 w-full ${v.status === 'В експлуатації' ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
+                                    <div className="mb-6">
+                                        <h3 className="text-xl font-black text-slate-800 tracking-tight">{v.manufacturer}</h3>
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">{v.series}</p>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-end border-b border-slate-50 pb-2">
+                                            <span className="text-[10px] font-black text-slate-300 uppercase italic">Потужність</span>
+                                            <span className="font-bold text-slate-600">{v.power} кВт</span>
+                                        </div>
+                                        <div className="flex justify-between items-end border-b border-slate-50 pb-2">
+                                            <span className="text-[10px] font-black text-slate-300 uppercase italic">Тег</span>
+                                            <span className="font-black text-blue-600 underline underline-offset-4 decoration-blue-100">{v.tag}</span>
+                                        </div>
+                                        <div className="pt-2">
+                                            <span className="text-[10px] font-mono text-slate-300">ID: {v.part}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* DICTIONARY VIEW */}
+                    {activeTab === 'dict' && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            {/* Catalog Hardware */}
+                            <div className="bg-white p-8 rounded-[2rem] card-shadow">
+                                <h3 className="font-black text-[10px] uppercase tracking-widest text-blue-600 mb-6 underline decoration-4 underline-offset-8">1. База моделей ПЧ</h3>
+                                <div className="space-y-3 mb-8">
+                                    {(data.dict.hardware || []).map((h, i) => (
+                                        <div key={i} className="p-4 bg-slate-50 rounded-2xl">
+                                            <p className="font-bold text-sm text-slate-700">{h.m} {h.s}</p>
+                                            <p className="text-[10px] font-mono text-slate-400">{h.part}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => setModals({...modals, hardware: true})} className="w-full p-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest">+ Нова модель</button>
+                            </div>
+
+                            {/* Tags */}
+                            <div className="bg-white p-8 rounded-[2rem] card-shadow text-center">
+                                <h3 className="font-black text-[10px] uppercase tracking-widest text-emerald-600 mb-6 underline decoration-4 underline-offset-8">2. Теги встановлення</h3>
+                                <div className="flex flex-wrap gap-2 mb-8 justify-center">
+                                    {(data.dict.tags || []).map((t, i) => <div key={i} className="px-4 py-2 bg-emerald-50 text-emerald-700 font-black text-[10px] rounded-xl">{t}</div>)}
+                                </div>
+                                <button onClick={() => {const t = prompt("Назва тегу?"); if(t) db.ref(DB_PATH+'dict/tags').set([...(data.dict.tags||[]), t])}} className="w-full p-4 bg-emerald-100 text-emerald-700 rounded-2xl font-black text-[10px] uppercase tracking-widest">+ Додати тег</button>
+                            </div>
+
+                            {/* Users */}
+                            <div className="bg-white p-8 rounded-[2rem] card-shadow">
+                                <h3 className="font-black text-[10px] uppercase tracking-widest text-rose-600 mb-6 underline decoration-4 underline-offset-8">3. Персонал</h3>
+                                <div className="space-y-3 mb-8">
+                                    {(data.dict.users || []).map((u, i) => (
+                                        <div key={i} className="flex justify-between p-4 bg-rose-50 rounded-2xl font-bold text-xs">
+                                            <span className="text-rose-900">{u.name}</span>
+                                            <span className="text-rose-200 italic">PIN: {u.pin}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={() => {const name = prompt("Ім'я?"); const pin = prompt("PIN?"); if(name && pin) db.ref(DB_PATH+'dict/users').set([...(data.dict.users||[]), {name, pin}])}} className="w-full p-4 bg-rose-100 text-rose-700 rounded-2xl font-black text-[10px] uppercase tracking-widest">+ Нова персона</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODALS */}
+                    {modals.vfd && <AddVfdModal />}
+                    {modals.hardware && <AddHardwareModal />}
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
