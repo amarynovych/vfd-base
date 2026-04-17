@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VFD Cloud Database Pro</title>
+    <title>VFD Enterprise System</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -12,15 +12,15 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 700; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
-        // ── КОНФІГУРАЦІЯ ТА ДАНІ ──────────────────────────────────────────
+        // --- КОНФІГУРАЦІЯ ---
         const firebaseConfig = {
             apiKey: "AIzaSyAtl9abE3Sgap2G7tzwVK1BQf5ptOxOBFs",
             authDomain: "vfd-db.firebaseapp.com",
@@ -31,189 +31,195 @@
             appId: "1:534290200378:web:da96cf98c82fbea10dc203"
         };
 
-        const CATALOGUE = {
-            "Siemens": ["G120", "G120C", "G120X", "Sinamics S120", "Sinamics V20", "MM440"],
-            "Danfoss": ["FC 51", "FC 101", "FC 102", "FC 302", "VLT Micro"],
-            "LS": ["iG5A", "iS7", "iP5A", "H100"],
-            "Schneider": ["ATV320", "ATV630", "ATV930", "ATV312"],
-            "ABB": ["ACS355", "ACS580", "ACS880"]
-        };
-
-        const STATUSES = ["В експлуатації", "Резерв", "В ремонті", "Списаний"];
-        const MODES = ["Profinet", "Profibus", "Modbus TCP", "Modbus RTU", "Аналоговий", "Місцевий"];
-
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
+        const DB_PATH = 'vfd_enterprise_data/';
 
-        // ── КОМПОНЕНТ ДОДАВАННЯ ────────────────────────────────────────────
-        const VfdModal = ({ isOpen, onClose, onSave }) => {
-            const [form, setForm] = React.useState({
-                m: "Siemens", s: "G120", p: "7.5", st: "Резерв", pos: "", ip: "", mode: "Profinet"
-            });
-
-            if (!isOpen) return null;
-
-            return (
-                <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
-                        <h2 className="text-xl font-bold mb-4">Новий перетворювач частоти</h2>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Виробник</label>
-                                <select className="w-full border p-2 rounded-lg" value={form.m} 
-                                    onChange={e => setForm({...form, m: e.target.value, s: CATALOGUE[e.target.value][0]})}>
-                                    {Object.keys(CATALOGUE).map(k => <option key={k}>{k}</option>)}
-                                </select>
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Серія</label>
-                                    <select className="w-full border p-2 rounded-lg" value={form.s} onChange={e => setForm({...form, s: e.target.value})}>
-                                        {CATALOGUE[form.m].map(s => <option key={s}>{s}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Потужність (кВт)</label>
-                                    <input type="number" step="0.1" className="w-full border p-2 rounded-lg" value={form.p} onChange={e => setForm({...form, p: e.target.value})} />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-slate-500 uppercase">Місце встановлення (Позиція)</label>
-                                <input placeholder="Напр: Насос №1, Цех 2" className="w-full border p-2 rounded-lg" value={form.pos} onChange={e => setForm({...form, pos: e.target.value})} />
-                            </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Керування</label>
-                                    <select className="w-full border p-2 rounded-lg" value={form.mode} onChange={e => setForm({...form, mode: e.target.value})}>
-                                        {MODES.map(m => <option key={m}>{m}</option>)}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">IP Адреса</label>
-                                    <input placeholder="192.168..." className="w-full border p-2 rounded-lg font-mono text-sm" value={form.ip} onChange={e => setForm({...form, ip: e.target.value})} />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="mt-6 flex gap-2">
-                            <button onClick={onClose} className="flex-1 py-2 text-slate-500 font-bold hover:bg-slate-50 rounded-lg">Скасувати</button>
-                            <button onClick={() => onSave(form)} className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-lg shadow-blue-200">Зберегти</button>
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        // ── ОСНОВНИЙ ДОДАТОК ──────────────────────────────────────────────
         function App() {
-            const [vfds, setVfds] = React.useState([]);
-            const [history, setHistory] = React.useState([]);
+            const [data, setData] = React.useState({ vfds: {}, log: {}, catalog: { manufacturers: ["Siemens", "Danfoss"], positions: ["Склад"], users: [{name: "Адмін", pin: "1111"}] } });
             const [loading, setLoading] = React.useState(true);
-            const [isModalOpen, setIsModalOpen] = React.useState(false);
+            const [activeTab, setActiveTab] = React.useState('dash');
+            const [currentUser, setCurrentUser] = React.useState(null);
             const [search, setSearch] = React.useState('');
 
             React.useEffect(() => {
-                const dbRef = db.ref('vfd_pro_data/');
-                dbRef.on('value', (snapshot) => {
-                    const val = snapshot.val();
-                    if (val) {
-                        const list = val.vfds ? Object.keys(val.vfds).map(k => ({id: k, ...val.vfds[k]})) : [];
-                        setVfds(list.reverse());
-                        setHistory(val.history || []);
-                    }
+                db.ref(DB_PATH).on('value', snap => {
+                    if (snap.val()) setData(prev => ({...prev, ...snap.val()}));
                     setLoading(false);
                 });
             }, []);
 
-            const handleSave = (form) => {
-                const newVfdRef = db.ref('vfd_pro_data/vfds').push();
-                newVfdRef.set({
-                    ...form,
-                    date: new Date().toLocaleString("uk-UA")
-                });
-                
-                const logRef = db.ref('vfd_pro_data/history').push();
-                logRef.set({
+            // --- ФУНКЦІЇ ---
+            const writeLog = (msg) => {
+                db.ref(DB_PATH + 'log').push({
                     ts: new Date().toLocaleString(),
-                    msg: `Додано ${form.m} ${form.s} (${form.p} кВт) на позицію ${form.pos || 'Склад'}`
+                    user: currentUser || "Анонім",
+                    msg: msg
                 });
-                
-                setIsModalOpen(false);
             };
 
-            const deleteItem = (id, name) => {
-                if(confirm(`Видалити ПЧ ${name}?`)) {
-                    db.ref(`vfd_pro_data/vfds/${id}`).remove();
+            const checkAuth = () => {
+                if (currentUser) return true;
+                const name = prompt("Ваше ім'я?");
+                if (!name) return false;
+                const userObj = (data.catalog.users || []).find(u => u.name === name);
+                if (userObj && userObj.pin) {
+                    const pin = prompt("Введіть PIN-код:");
+                    if (pin !== userObj.pin) { alert("Невірний код!"); return false; }
                 }
+                setCurrentUser(name);
+                return true;
             };
 
-            const getStatusStyle = (s) => {
-                if (s === "В експлуатації") return "bg-emerald-100 text-emerald-700 border-emerald-200";
-                if (s === "В ремонті") return "bg-rose-100 text-rose-700 border-rose-200";
-                return "bg-amber-100 text-amber-700 border-amber-200";
+            const addVfd = () => {
+                if (!checkAuth()) return;
+                const m = prompt("Виробник?");
+                if (!m) return;
+                const p = prompt("Потужність (кВт)?");
+                const newRef = db.ref(DB_PATH + 'vfds').push();
+                newRef.set({ m, p, st: "Резерв", pos: "Склад", lastUpd: new Date().toLocaleString() });
+                writeLog(`Додав ПЧ: ${m} ${p}кВт`);
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center font-bold text-slate-400 animate-pulse">З'ЄДНАННЯ З БАЗОЮ...</div>;
+            const updateVfd = (id, field, val) => {
+                if (!checkAuth()) return;
+                db.ref(`${DB_PATH}vfds/${id}`).update({ [field]: val, lastUpd: new Date().toLocaleString() });
+                writeLog(`Змінив ${field} для ПЧ ${id} на ${val}`);
+            };
+
+            const exportToExcel = () => {
+                const rows = [["ID", "Виробник", "Потужність", "Статус", "Позиція", "Оновлено"]];
+                Object.entries(data.vfds || {}).forEach(([id, v]) => {
+                    rows.push([id, v.m, v.p, v.st, v.pos, v.lastUpd]);
+                });
+                const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.join(",")).join("\n");
+                const link = document.createElement("a");
+                link.setAttribute("href", encodeURI(csvContent));
+                link.setAttribute("download", `vfd_report_${new Date().toLocaleDateString()}.csv`);
+                document.body.appendChild(link);
+                link.click();
+            };
+
+            if (loading) return <div className="p-20 text-center font-bold animate-pulse">ЗАВАНТАЖЕННЯ СИСТЕМИ...</div>;
+
+            const vfdList = Object.entries(data.vfds || {}).map(([id, v]) => ({id, ...v}));
+            const stats = {
+                total: vfdList.length,
+                work: vfdList.filter(v => v.st === "В експлуатації").length,
+                repair: vfdList.filter(v => v.st === "В ремонті").length,
+                reserve: vfdList.filter(v => v.st === "Резерв").length
+            };
 
             return (
-                <div className="max-w-6xl mx-auto p-4 md:p-8">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
-                        <div>
-                            <h1 className="text-4xl font-black text-slate-900 tracking-tighter">VFD<span className="text-blue-600 font-light italic">Cloud</span></h1>
-                            <div className="flex items-center gap-2 mt-1">
-                                <span className="h-2 w-2 bg-blue-500 rounded-full animate-ping"></span>
-                                <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Team Sync Active</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-3 w-full md:w-auto">
-                            <input 
-                                placeholder="Пошук по базі..." 
-                                className="flex-1 md:w-80 bg-white border-2 border-slate-200 rounded-xl px-4 py-3 shadow-sm focus:border-blue-500 outline-none transition-all"
-                                onChange={e => setSearch(e.target.value)}
-                            />
-                            <button 
-                                onClick={() => setIsModalOpen(true)}
-                                className="bg-slate-900 text-white px-8 py-3 rounded-xl font-bold shadow-xl hover:bg-blue-600 transition-all active:scale-95"
-                            >
-                                + Додати
-                            </button>
+                <div className="max-w-7xl mx-auto p-4">
+                    {/* Header */}
+                    <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm mb-6">
+                        <h1 className="text-2xl font-black text-slate-800">VFD <span className="text-blue-600">Enterprise</span></h1>
+                        <div className="flex gap-4 items-center">
+                            <span className="text-sm font-medium text-slate-500 italic">Користувач: {currentUser || "Не залогінено"}</span>
+                            <button onClick={exportToExcel} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md hover:bg-emerald-700">Експорт Excel</button>
+                            <button onClick={addVfd} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md hover:bg-blue-700">+ Додати ПЧ</button>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {vfds.filter(v => v.m.toLowerCase().includes(search.toLowerCase()) || v.pos.toLowerCase().includes(search.toLowerCase())).map(v => (
-                            <div key={v.id} className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm hover:shadow-xl hover:border-blue-200 transition-all group relative overflow-hidden">
-                                <div className={`absolute top-0 right-0 px-4 py-1 rounded-bl-2xl border-b border-l text-[10px] font-black uppercase ${getStatusStyle(v.st)}`}>
-                                    {v.st}
-                                </div>
-                                <div className="mb-4">
-                                    <h3 className="text-2xl font-black text-slate-800 leading-tight">{v.m}</h3>
-                                    <p className="text-slate-400 font-medium">{v.s} — {v.p} кВт</p>
-                                </div>
-                                <div className="space-y-3 border-t pt-4 border-slate-50">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-slate-400 text-xs font-bold w-12 italic">LOC:</span>
-                                        <span className="text-slate-700 font-semibold">{v.pos || "Склад"}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-slate-400 text-xs font-bold w-12 italic">COMM:</span>
-                                        <span className="text-blue-600 text-sm font-mono font-bold uppercase">{v.mode} {v.ip && `(${v.ip})`}</span>
-                                    </div>
-                                </div>
-                                <div className="mt-6 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <span className="text-[10px] text-slate-300 font-mono">ID: {v.id.slice(-5)}</span>
-                                    <button onClick={() => deleteItem(v.id, `${v.m} ${v.s}`)} className="text-rose-400 hover:text-rose-600 text-xs font-bold italic">видалити</button>
-                                </div>
-                            </div>
-                        ))}
+                    {/* Tabs Navigation */}
+                    <div className="flex gap-8 mb-6 bg-white px-6 rounded-xl shadow-sm">
+                        <button onClick={() => setActiveTab('dash')} className={`py-4 ${activeTab === 'dash' ? 'tab-active' : ''}`}>Дашборд</button>
+                        <button onClick={() => setActiveTab('table')} className={`py-4 ${activeTab === 'table' ? 'tab-active' : ''}`}>Реєстр (Таблиця)</button>
+                        <button onClick={() => setActiveTab('catalog')} className={`py-4 ${activeTab === 'catalog' ? 'tab-active' : ''}`}>Довідник</button>
+                        <button onClick={() => setActiveTab('log')} className={`py-4 ${activeTab === 'log' ? 'tab-active' : ''}`}>Журнал подій</button>
                     </div>
 
-                    {vfds.length === 0 && (
-                        <div className="text-center py-20 bg-slate-100 rounded-3xl border-2 border-dashed border-slate-200">
-                            <p className="text-slate-400 font-bold italic text-xl">БАЗА ПОРОЖНЯ. ЧАС ДОДАТИ ПЕРШИЙ ПРИСТРІЙ.</p>
+                    {/* Content */}
+                    {activeTab === 'dash' && (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div className="bg-white p-6 rounded-2xl border-l-4 border-blue-500 shadow-sm">
+                                <p className="text-slate-400 text-xs font-bold uppercase">Усього пристроїв</p>
+                                <p className="text-3xl font-black">{stats.total}</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl border-l-4 border-emerald-500 shadow-sm">
+                                <p className="text-slate-400 text-xs font-bold uppercase">В експлуатації</p>
+                                <p className="text-3xl font-black text-emerald-600">{stats.work}</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl border-l-4 border-amber-500 shadow-sm">
+                                <p className="text-slate-400 text-xs font-bold uppercase">Резерв</p>
+                                <p className="text-3xl font-black text-amber-500">{stats.reserve}</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-2xl border-l-4 border-rose-500 shadow-sm">
+                                <p className="text-slate-400 text-xs font-bold uppercase">В ремонті</p>
+                                <p className="text-3xl font-black text-rose-600">{stats.repair}</p>
+                            </div>
                         </div>
                     )}
 
-                    <VfdModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSave} />
+                    {activeTab === 'table' && (
+                        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                            <div className="p-4 bg-slate-50 border-b">
+                                <input placeholder="Шукати за позицією або виробником..." className="w-full p-2 rounded-lg border focus:ring-2 focus:ring-blue-500 outline-none" onChange={e => setSearch(e.target.value)} />
+                            </div>
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
+                                    <tr>
+                                        <th className="p-4">Виробник</th>
+                                        <th className="p-4">кВт</th>
+                                        <th className="p-4">Статус</th>
+                                        <th className="p-4">Позиція (Місце)</th>
+                                        <th className="p-4">Остання зміна</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {vfdList.filter(v => v.m.includes(search) || v.pos.includes(search)).map(v => (
+                                        <tr key={v.id} className="hover:bg-slate-50 transition-colors">
+                                            <td className="p-4 font-bold">{v.m}</td>
+                                            <td className="p-4">{v.p}</td>
+                                            <td className="p-4">
+                                                <select className="text-sm p-1 rounded border bg-white" value={v.st} onChange={e => updateVfd(v.id, 'st', e.target.value)}>
+                                                    {["В експлуатації", "Резерв", "В ремонті", "Списаний"].map(s => <option key={s}>{s}</option>)}
+                                                </select>
+                                            </td>
+                                            <td className="p-4">
+                                                <input className="text-sm p-1 border rounded w-full bg-transparent hover:bg-white" value={v.pos} onBlur={e => updateVfd(v.id, 'pos', e.target.value)} onChange={e => {}} />
+                                            </td>
+                                            <td className="p-4 text-xs text-slate-400">{v.lastUpd}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {activeTab === 'catalog' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm">
+                                <h3 className="font-bold mb-4">Відповідальні та PIN-коди</h3>
+                                {data.catalog.users?.map((u, i) => (
+                                    <div key={i} className="flex justify-between p-2 border-b text-sm">
+                                        <span>{u.name}</span>
+                                        <span className="font-mono text-slate-400">PIN: {u.pin}</span>
+                                    </div>
+                                ))}
+                                <button className="mt-4 text-blue-600 text-sm font-bold" onClick={() => {
+                                    const n = prompt("Ім'я?");
+                                    const p = prompt("PIN?");
+                                    db.ref(DB_PATH + 'catalog/users').set([...(data.catalog.users || []), {name: n, pin: p}]);
+                                }}>+ Додати відповідального</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'log' && (
+                        <div className="bg-white rounded-2xl shadow-sm p-6 max-h-[600px] overflow-y-auto">
+                            {Object.values(data.log || {}).reverse().map((l, i) => (
+                                <div key={i} className="border-l-2 border-blue-100 pl-4 py-3 mb-2">
+                                    <div className="flex justify-between text-[10px] text-slate-400 font-bold uppercase">
+                                        <span>{l.ts}</span>
+                                        <span className="text-blue-600">{l.user}</span>
+                                    </div>
+                                    <p className="text-sm text-slate-700">{l.msg}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             );
         }
