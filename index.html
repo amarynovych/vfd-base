@@ -3,23 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>База ПЧ | LIVE</title>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <title>База ПЧ | Спільний доступ</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
 </head>
-<body class="bg-slate-50">
-    <div id="root">
-        <div style="padding: 50px; text-align: center; color: #666; font-family: sans-serif;">
-            Завантаження інтерфейсу... (якщо це повідомлення не зникає, натисніть F12)
-        </div>
-    </div>
+<body class="bg-gray-100">
+    <div id="root"></div>
 
     <script type="text/babel">
-        // Конфігурація
+        // Ваша конфігурація
         const firebaseConfig = {
             apiKey: "AIzaSyAtl9abE3Sgap2G7tzwVK1BQf5ptOxOBFs",
             authDomain: "vfd-db.firebaseapp.com",
@@ -30,80 +27,90 @@
             appId: "1:534290200378:web:da96cf98c82fbea10dc203"
         };
 
-        // Ініціалізація (Compat mode для стабільності в HTML)
+        // Ініціалізація
         firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
+        const db = firebase.database();
 
         function App() {
-            const [data, setData] = React.useState([]);
+            const [vfds, setVfds] = React.useState([]);
             const [loading, setLoading] = React.useState(true);
-            const [err, setErr] = React.useState(null);
 
             React.useEffect(() => {
-                try {
-                    const dbRef = database.ref('shared_vfd_list/');
-                    dbRef.on('value', (snapshot) => {
-                        const val = snapshot.val();
-                        if (val) {
-                            const list = Object.keys(val).map(id => ({ id, ...val[id] }));
-                            setData(list);
-                        }
-                        setLoading(false);
-                    }, (error) => {
-                        setErr(error.message);
-                        setLoading(false);
-                    });
-                } catch (e) {
-                    setErr(e.message);
-                }
+                const vfdRef = db.ref('shared_vfd_list/');
+                vfdRef.on('value', (snapshot) => {
+                    const val = snapshot.val();
+                    if (val) {
+                        const list = Object.keys(val).map(key => ({ id: key, ...val[key] }));
+                        setVfds(list);
+                    } else {
+                        setVfds([]);
+                    }
+                    setLoading(false);
+                });
             }, []);
 
-            const handleAdd = () => {
-                const m = prompt("Виробник:");
-                if (!m) return;
-                const p = prompt("Потужність (кВт):");
-                
-                database.ref('shared_vfd_list/').push({
-                    manufacturer: m,
-                    power: p || "0",
-                    status: "В роботі",
-                    ts: new Date().toLocaleString()
+            const addEntry = () => {
+                const manufacturer = prompt("Виробник (напр. Danfoss):");
+                if (!manufacturer) return;
+                const power = prompt("Потужність, кВт:");
+
+                db.ref('shared_vfd_list/').push({
+                    manufacturer,
+                    power: power || "—",
+                    status: "В експлуатації",
+                    date: new Date().toLocaleString("uk-UA")
                 });
             };
 
-            if (err) return <div style={{color:'red', padding:20}}>Помилка: {err}</div>;
-            if (loading) return <div className="p-10 text-center text-slate-400">Синхронізація з хмарою...</div>;
+            if (loading) return (
+                <div className="flex h-screen items-center justify-center font-sans text-gray-500">
+                    З'єднання з базою даних ПЧ...
+                </div>
+            );
 
             return (
-                <div className="max-w-4xl mx-auto p-6">
-                    <div className="flex justify-between items-center mb-6">
-                        <h1 className="text-2xl font-bold text-slate-800">🔌 Спільна база ПЧ</h1>
+                <div className="max-w-5xl mx-auto p-4 sm:p-8 font-sans">
+                    <div className="flex justify-between items-center mb-8 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-800">🔌 Реєстр ПЧ</h1>
+                            <p className="text-sm text-green-600 font-medium">● Режим спільної роботи активовано</p>
+                        </div>
                         <button 
-                            onClick={handleAdd}
-                            className="bg-blue-600 text-white px-4 py-2 rounded shadow hover:bg-blue-700"
+                            onClick={addEntry}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-bold shadow-lg shadow-blue-100 transition-all"
                         >
-                            + Додати запис
+                            + Додати ПЧ
                         </button>
                     </div>
 
-                    <div className="bg-white rounded-lg shadow overflow-hidden">
-                        <table className="w-full">
-                            <thead className="bg-slate-100">
+                    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50 border-b border-gray-200">
                                 <tr>
-                                    <th className="p-3 text-left">Виробник</th>
-                                    <th className="p-3 text-left">Потужність</th>
-                                    <th className="p-3 text-left">Дата</th>
+                                    <th className="p-4 text-xs uppercase text-gray-400 font-bold">Виробник</th>
+                                    <th className="p-4 text-xs uppercase text-gray-400 font-bold">Потужність</th>
+                                    <th className="p-4 text-xs uppercase text-gray-400 font-bold">Статус</th>
+                                    <th className="p-4 text-xs uppercase text-gray-400 font-bold">Дата</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                {data.length === 0 ? (
-                                    <tr><td colSpan="3" className="p-10 text-center text-slate-400">Немає даних. Натисніть "+ Додати запис"</td></tr>
+                            <tbody className="divide-y divide-gray-100">
+                                {vfds.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="4" className="p-12 text-center text-gray-400 italic">
+                                            База порожня. Додайте перший пристрій.
+                                        </td>
+                                    </tr>
                                 ) : (
-                                    data.map(item => (
-                                        <tr key={item.id} className="border-t">
-                                            <td className="p-3 font-semibold">{item.manufacturer}</td>
-                                            <td className="p-3">{item.power} кВт</td>
-                                            <td className="p-3 text-sm text-slate-400">{item.ts}</td>
+                                    vfds.map(v => (
+                                        <tr key={v.id} className="hover:bg-gray-50 transition-colors">
+                                            <td className="p-4 font-bold text-gray-700">{v.manufacturer}</td>
+                                            <td className="p-4"><span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-sm">{v.power} кВт</span></td>
+                                            <td className="p-4">
+                                                <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold uppercase">
+                                                    {v.status}
+                                                </span>
+                                            </td>
+                                            <td className="p-4 text-gray-400 text-sm">{v.date}</td>
                                         </tr>
                                     ))
                                 )}
