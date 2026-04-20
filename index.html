@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VFD Enterprise | Dynamic Analytics</title>
+    <title>VFD Enterprise | Stable Version</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -15,6 +15,7 @@
         body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
         .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 700; }
         .modal-overlay { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(5px); }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body>
@@ -38,11 +39,14 @@
         function App() {
             const [data, setData] = React.useState({ vfds: {}, log: {}, dict: { hardware: [], tags: [] } });
             const [loading, setLoading] = React.useState(true);
-            const [view, setView] = React.useState('vfd'); 
             const [activeTab, setActiveTab] = React.useState('dash');
-            const [groupKey, setGroupKey] = React.useState('status'); // Ключ для групування
-            const [modals, setModals] = React.useState({ vfd: false, edit: false });
+            const [modals, setModals] = React.useState({ vfd: false, edit: false, hware: false, hwareEdit: false });
             const [selectedId, setSelectedId] = React.useState(null);
+            const [editIdx, setEditIdx] = React.useState(null);
+            
+            const [fMan, setFMan] = React.useState('Всі виробники');
+            const [fTag, setFTag] = React.useState('Всі локації');
+            const [fStat, setFStat] = React.useState('Всі статуси');
 
             React.useEffect(() => {
                 db.ref(DB_PATH).on('value', snap => {
@@ -52,69 +56,180 @@
                 });
             }, []);
 
-            const allVfds = Object.values(data.vfds || {});
-
-            // Функція динамічного групування
-            const getGroupedData = () => {
-                const groups = {};
-                allVfds.forEach(v => {
-                    const val = v[groupKey] || 'Без категорії';
-                    groups[val] = (groups[val] || 0) + 1;
+            const logAction = (msg) => {
+                db.ref(DB_PATH + 'log').push({
+                    ts: new Date().toLocaleString("uk-UA"),
+                    user: "Адмін",
+                    msg: msg
                 });
-                return groups;
             };
 
-            const groupedData = getGroupedData();
+            const exportToExcel = () => {
+                const rows = [["Виробник", "Серія", "Заказний номер", "Потужність", "S/N", "Тег", "Статус", "Оновлено"]];
+                Object.values(data.vfds || {}).forEach(v => {
+                    rows.push([v.manufacturer||"", v.series||"", v.part||"", v.power||"", v.serial||"", v.tag||"", v.status||"", v.lastUpd||""]);
+                });
+                const csvContent = "\uFEFF" + rows.map(e => e.join(";")).join("\n");
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `VFD_Database_${new Date().toLocaleDateString()}.csv`;
+                link.click();
+            };
+
+            const filteredVfds = Object.entries(data.vfds || {}).filter(([id, v]) => {
+                const matchMan = fMan === 'Всі виробники' || v.manufacturer === fMan;
+                const matchTag = fTag === 'Всі локації' || v.tag === fTag;
+                const matchStat = fStat === 'Всі статуси' || v.status === fStat;
+                return matchMan && matchTag && matchStat;
+            });
+
+            // --- МОДАЛЬНІ ВІКНА ---
+            const VfdFormModal = ({ mode = 'add', targetId = null }) => {
+                const [form, setForm] = React.useState(mode === 'edit' ? data.vfds[targetId] : { manufacturer: '', series: '', part: '', power: '', tag: '', status: 'Резерв', serial: '' });
+                const hardware = data.dict.hardware || [];
+                
+                const save = () => {
+                    const payload = { ...form, lastUpd: new Date().toLocaleString() };
+                    if (mode === 'add') db.ref(DB_PATH + 'vfds').push(payload);
+                    else db.ref(DB_PATH + 'vfds/' + targetId).update(payload);
+                    setModals({ vfd: false, edit: false });
+                    logAction(`${mode === 'add' ? 'Додано' : 'Змінено'} ПЧ: ${form.manufacturer} ${form.serial}`);
+                };
+
+                return (
+                    <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xl p-8 max-h-[90vh] overflow-y-auto">
+                            <h2 className="text-2xl font-black mb-6 uppercase italic text-blue-600">{mode === 'add' ? 'Нова Реєстрація' : 'Редагування'}</h2>
+                            <div className="space-y-4">
+                                {mode === 'add' && (
+                                    <select className="w-full border-2 p-3 rounded-xl bg-blue-50 font-bold" onChange={e => {const h = hardware[e.target.value]; if(h) setForm({...form, manufacturer: h.m, series: h.s, part: h.part, power: h.p})}}>
+                                        <option value="">-- Модель з довідника --</option>
+                                        {hardware.map((h, i) => <option key={i} value={i}>{h.m} {h.s} ({h.p} кВт)</option>)}
+                                    </select>
+                                )}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input placeholder="Виробник" value={form.manufacturer} className="border-2 p-3 rounded-xl w-full" onChange={e => setForm({...form, manufacturer: e.target.value})} />
+                                    <input placeholder="Серія" value={form.series} className="border-2 p-3 rounded-xl w-full" onChange={e => setForm({...form, series: e.target.value})} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <input placeholder="S/N" value={form.serial} className="border-2 border-blue-200 p-3 rounded-xl w-full font-bold" onChange={e => setForm({...form, serial: e.target.value})} />
+                                    <select className="border-2 p-3 rounded-xl font-bold text-blue-600" value={form.tag} onChange={e => setForm({...form, tag: e.target.value})}>
+                                        <option value="">Тег...</option>
+                                        {(data.dict.tags || []).map(t => <option key={t} value={t}>{t}</option>)}
+                                    </select>
+                                </div>
+                                <select className="w-full border-2 p-3 rounded-xl bg-slate-50 font-black uppercase" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+                                    {["Резерв", "В експлуатації", "В ремонті", "Списаний"].map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                                <div className="flex gap-4 pt-4">
+                                    <button onClick={() => setModals({vfd:false, edit:false})} className="flex-1 font-bold text-slate-300">Назад</button>
+                                    <button className="flex-[2] bg-blue-600 text-white p-4 rounded-2xl font-black shadow-lg uppercase" onClick={save}>Зберегти</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const HwareFormModal = ({ mode = 'add', index = null }) => {
+                const [h, setH] = React.useState(mode === 'edit' ? data.dict.hardware[index] : { m: '', s: '', p: '', part: '' });
+                const save = () => {
+                    const newList = [...(data.dict.hardware || [])];
+                    if (mode === 'add') newList.push(h); else newList[index] = h;
+                    db.ref(DB_PATH + 'dict/hardware').set(newList);
+                    setModals({...modals, hware: false, hwareEdit: false});
+                };
+                return (
+                    <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4">
+                        <div className="bg-white p-8 rounded-3xl w-full max-w-md shadow-2xl">
+                            <h2 className="font-black mb-6 uppercase italic text-slate-800 tracking-tighter">Модель обладнання</h2>
+                            <div className="space-y-4">
+                                <input placeholder="Виробник" value={h.m} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, m: e.target.value})} />
+                                <input placeholder="Серія" value={h.s} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, s: e.target.value})} />
+                                <input placeholder="Потужність (кВт)" value={h.p} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, p: e.target.value})} />
+                                <input placeholder="Заказний код" value={h.part} className="w-full border-2 p-3 rounded-xl" onChange={e => setH({...h, part: e.target.value})} />
+                            </div>
+                            <div className="flex gap-2 mt-8">
+                                <button onClick={() => setModals({...modals, hware: false, hwareEdit: false})} className="flex-1 text-slate-300 uppercase font-black text-xs">Назад</button>
+                                <button onClick={save} className="flex-[2] bg-slate-900 text-white p-4 rounded-xl uppercase font-black text-xs shadow-lg">Зберегти</button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white font-black animate-pulse uppercase tracking-[0.2em]">Syncing...</div>;
 
             return (
-                <div className="max-w-7xl mx-auto p-4 md:p-8 font-sans">
+                <div className="max-w-7xl mx-auto p-4 md:p-8">
                     <header className="flex justify-between items-center mb-8 bg-white p-6 rounded-[2.5rem] shadow-sm border">
-                        <h1 className="text-xl font-black uppercase italic">VFD <span className="text-blue-600">Analytics</span></h1>
-                        <button onClick={() => setView('hub')} className="text-xs font-black uppercase text-slate-400">На головну</button>
+                        <h1 className="text-2xl font-black text-slate-900 uppercase">VFD <span className="text-blue-600">Enterprise</span></h1>
+                        <button onClick={() => setModals({...modals, vfd: true})} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black shadow-xl uppercase text-[11px] hover:scale-105 transition-all">+ Додати ПЧ</button>
                     </header>
 
-                    {/* Навігація та налаштування Дашборду */}
-                    <div className="flex justify-between items-center mb-6">
-                        <nav className="flex gap-6 border-b-2 overflow-x-auto scrollbar-hide text-[10px] font-black uppercase tracking-[0.2em]">
-                            {['dash', 'table'].map(t => (
-                                <button key={t} onClick={() => setActiveTab(t)} className={`pb-4 ${activeTab === t ? 'tab-active' : 'text-slate-400'}`}>
-                                    {t === 'dash' ? 'Дашборд' : 'Реєстр'}
-                                </button>
-                            ))}
-                        </nav>
-                        
-                        {activeTab === 'dash' && (
-                            <select 
-                                className="p-3 bg-white border-2 rounded-xl font-black text-xs uppercase tracking-widest outline-none" 
-                                onChange={(e) => setGroupKey(e.target.value)}
-                                value={groupKey}
-                            >
-                                <option value="status">Групувати за Статусом</option>
-                                <option value="manufacturer">Групувати за Виробником</option>
-                                <option value="tag">Групувати за Тегом</option>
-                                <option value="power">Групувати за Потужністю</option>
-                            </select>
-                        )}
-                    </div>
+                    <nav className="flex gap-6 mb-8 border-b-2 overflow-x-auto whitespace-nowrap scrollbar-hide text-[11px] font-black uppercase tracking-[0.2em]">
+                        {['dash', 'table', 'tiles', 'dict', 'log'].map(t => (
+                            <button key={t} onClick={() => setActiveTab(t)} className={`pb-4 px-2 ${activeTab === t ? 'tab-active' : 'text-slate-400'}`}>
+                                {t === 'dash' ? 'Дашборд' : t === 'table' ? 'Таблиця' : t === 'tiles' ? 'Плитки' : t === 'dict' ? 'Довідник' : 'Журнал'}
+                            </button>
+                        ))}
+                    </nav>
 
-                    {/* Динамічний Дашборд */}
                     {activeTab === 'dash' && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                            {Object.entries(groupedData).map(([key, count], i) => (
-                                <div key={i} className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 transition-all hover:scale-105">
-                                    <p className="text-[9px] font-black text-slate-400 uppercase mb-2 tracking-widest">{groupKey}</p>
-                                    <p className="text-xl font-black text-slate-800 mb-1 uppercase truncate">{key}</p>
-                                    <p className="text-4xl font-black text-blue-600">{count}</p>
-                                </div>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            {[
+                                {l: 'Усього ПЧ', v: Object.keys(data.vfds || {}).length},
+                                {l: 'В роботі', v: Object.values(data.vfds || {}).filter(v=>v.status==='В експлуатації').length},
+                                {l: 'Резерв', v: Object.values(data.vfds || {}).filter(v=>v.status==='Резерв').length},
+                                {l: 'Ремонт', v: Object.values(data.vfds || {}).filter(v=>v.status==='В ремонті').length}
+                            ].map((s, i) => (
+                                <div key={i} className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-50"><p className="text-[10px] font-black text-slate-300 uppercase mb-2 tracking-widest">{s.l}</p><p className="text-5xl font-black">{s.v}</p></div>
                             ))}
+                        </div>
+                    )}
+
+                    {['table', 'tiles'].includes(activeTab) && (
+                        <div className="flex gap-4 mb-6">
+                            <select className="p-2 border rounded-xl text-xs font-bold" onChange={e => setFMan(e.target.value)}><option>Всі виробники</option>{[...new Set(Object.values(data.vfds).map(v=>v.manufacturer))].map(m=><option key={m}>{m}</option>)}</select>
+                            <select className="p-2 border rounded-xl text-xs font-bold" onChange={e => setFTag(e.target.value)}><option>Всі локації</option>{(data.dict.tags || []).map(t=><option key={t}>{t}</option>)}</select>
+                            <button onClick={exportToExcel} className="bg-slate-100 px-4 rounded-xl text-xs font-bold">Excel Export</button>
                         </div>
                     )}
 
                     {activeTab === 'table' && (
-                        <div className="bg-white rounded-[2.5rem] shadow-sm border p-6">
-                             <p className="text-slate-400 font-bold p-10 text-center">Реєстр (Тут відображається ваш повний список ПЧ)</p>
+                        <div className="bg-white rounded-[2.5rem] shadow-sm border overflow-hidden">
+                            <table className="w-full text-left">
+                                <thead className="bg-slate-50 text-[10px] font-black text-slate-400 uppercase border-b tracking-widest">
+                                    <tr><th className="p-6">Дія</th><th className="p-6">Пристрій</th><th className="p-6">кВт</th><th className="p-6">S/N</th><th className="p-6">Локація</th><th className="p-6">Статус</th></tr>
+                                </thead>
+                                <tbody>
+                                    {filteredVfds.map(([id, v]) => (
+                                        <tr key={id} className="hover:bg-slate-50 border-b">
+                                            <td className="p-6 flex gap-3"><button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }} className="text-blue-500">✎</button><button onClick={() => deleteDevice(id, v.serial)} className="text-red-300">🗑</button></td>
+                                            <td className="p-6 font-black uppercase text-sm">{v.manufacturer} {v.series}</td>
+                                            <td className="p-6 font-bold text-slate-600">{v.power}</td>
+                                            <td className="p-6 font-mono text-slate-400">{v.serial}</td>
+                                            <td className="p-6 font-black text-blue-600">{v.tag}</td>
+                                            <td className="p-6 text-[10px] font-black uppercase">{v.status}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
                     )}
+
+                    {activeTab === 'dict' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border">
+                                <button onClick={() => setModals({...modals, hware: true})} className="w-full p-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase mb-6">+ Додати модель</button>
+                                <div className="space-y-2">{(data.dict.hardware || []).map((h, i) => <div key={i} className="p-4 bg-slate-50 rounded-xl font-bold uppercase text-xs flex justify-between">{h.m} {h.s} <button onClick={() => {const nl=[...data.dict.hardware]; nl.splice(i,1); db.ref(DB_PATH+'dict/hardware').set(nl);}} className="text-red-400">✕</button></div>)}</div>
+                            </div>
+                        </div>
+                    )}
+
+                    {(modals.vfd || modals.edit) && <VfdFormModal mode={modals.edit ? 'edit' : 'add'} targetId={selectedId} />}
+                    {modals.hware && <HwareFormModal onClose={() => setModals({...modals, hware: false})} />}
                 </div>
             );
         }
