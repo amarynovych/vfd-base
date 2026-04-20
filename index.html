@@ -2,8 +2,7 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VFD Pro | Service Registry</title>
+    <title>VFD Pro | Automation Registry</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -11,11 +10,8 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
-        .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 700; }
+        body { font-family: 'Inter', sans-serif; background: #f1f5f9; }
         .modal-overlay { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(5px); }
-        .scrollbar-hide::-webkit-scrollbar { display: none; }
     </style>
 </head>
 <body>
@@ -31,169 +27,100 @@
             messagingSenderId: "534290200378",
             appId: "1:534290200378:web:da96cf98c82fbea10dc203"
         };
-
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
         const DB_PATH = 'vfd_production_final/';
 
         function App() {
-            const [data, setData] = React.useState({ vfds: {}, log: {}, dict: { hardware: [], tags: [] } });
-            const [loading, setLoading] = React.useState(true);
-            const [view, setView] = React.useState('hub'); 
-            const [activeTab, setActiveTab] = React.useState('dash');
-            const [modals, setModals] = React.useState({ vfd: false, edit: false, hware: false, tag: false });
-            const [selectedId, setSelectedId] = React.useState(null);
+            const [data, setData] = React.useState({ vfds: {}, dict: { hardware: [], tags: [], departments: [], units: [] } });
+            const [modals, setModals] = React.useState({ vfd: false });
 
             React.useEffect(() => {
-                db.ref(DB_PATH).on('value', snap => {
-                    const val = snap.val();
-                    setData(val || { vfds: {}, log: {}, dict: { hardware: [], tags: [] } });
-                    setLoading(false);
-                });
+                db.ref(DB_PATH).on('value', snap => setData(snap.val() || { vfds: {}, dict: { hardware: [], tags: [], departments: [], units: [] } }));
             }, []);
 
-            const logAction = (msg, sn = '', tag = '') => {
-                db.ref(DB_PATH + 'log').push({ ts: new Date().toLocaleString("uk-UA"), msg, sn, tag });
-            };
-
-            const deleteDevice = (id, sn) => {
-                if(confirm(`Видалити ПЧ S/N: ${sn}?`)) {
-                    db.ref(DB_PATH + 'vfds/' + id).remove();
-                    logAction(`Видалено пристрій`, sn, '');
-                }
-            };
-
-            const allVfds = Object.values(data.vfds || {});
-            
-            const VfdModal = ({ mode = 'add', targetId = null }) => {
-                const [form, setForm] = React.useState(mode === 'edit' ? data.vfds[targetId] : { manufacturer: '', series: '', part: '', power: '', tag: '', status: 'Резерв', serial: '' });
+            const VfdModal = () => {
+                const [form, setForm] = React.useState({ manufacturer: '', series: '', part: '', power: '', serial: '', department: '', unit: '', tag: '', status: 'Резерв', comment: '' });
                 
                 const save = () => {
-                    const payload = { ...form, lastUpd: new Date().toLocaleString() };
-                    if (mode === 'add') {
-                        db.ref(DB_PATH + 'vfds').push(payload);
-                        logAction(`Реєстрація ПЧ`, form.serial, form.tag);
-                    } else {
-                        db.ref(DB_PATH + 'vfds/' + targetId).update(payload);
-                        logAction(`Оновлення ПЧ`, form.serial, form.tag);
-                    }
-                    setModals({ vfd: false, edit: false });
+                    db.ref(DB_PATH + 'vfds').push({...form, lastUpd: new Date().toLocaleString()});
+                    setModals({ vfd: false });
                 };
 
                 return (
                     <div className="fixed inset-0 modal-overlay flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl p-10 max-h-[90vh] overflow-y-auto">
-                            <h2 className="text-xl font-black mb-6 uppercase italic text-blue-600 border-b pb-4">{mode === 'add' ? 'Реєстрація ПЧ' : 'Редагування'}</h2>
-                            <div className="space-y-4">
-                                {mode === 'add' && (
-                                    <select className="w-full border-2 p-4 rounded-2xl bg-blue-50 font-bold" onChange={e => {
-                                        const h = data.dict.hardware[e.target.value];
-                                        if(h) setForm({...form, manufacturer: h.m, series: h.s, part: h.part, power: h.p});
-                                    }}>
-                                        <option value="">-- Виберіть модель з довідника --</option>
-                                        {(data.dict.hardware || []).map((h, i) => <option key={i} value={i}>{h.m} {h.s} ({h.p} кВт)</option>)}
-                                    </select>
-                                )}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <input placeholder="Виробник" value={form.manufacturer} className="border-2 p-4 rounded-2xl w-full" onChange={e => setForm({...form, manufacturer: e.target.value})} />
-                                    <input placeholder="Серійний №" value={form.serial} className="border-2 p-4 rounded-2xl w-full font-black" onChange={e => setForm({...form, serial: e.target.value})} />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <input placeholder="Заказний код" value={form.part} className="border-2 p-4 rounded-2xl w-full" onChange={e => setForm({...form, part: e.target.value})} />
-                                    <input placeholder="Потужність (кВт)" value={form.power} className="border-2 p-4 rounded-2xl w-full" onChange={e => setForm({...form, power: e.target.value})} />
-                                </div>
-                                <select className="w-full border-2 p-4 rounded-2xl font-bold" value={form.tag} onChange={e => setForm({...form, tag: e.target.value})}>
-                                    <option value="">Локація (Тег)...</option>
-                                    {(data.dict.tags || []).map(t => <option key={t} value={t}>{t}</option>)}
+                        <div className="bg-white rounded-[2rem] p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                            <h2 className="text-xl font-black mb-6 uppercase">Реєстрація ПЧ</h2>
+                            <div className="grid grid-cols-2 gap-4">
+                                <select className="border p-3 rounded-xl" onChange={e => {
+                                    const h = data.dict.hardware[e.target.value];
+                                    if(h) setForm({...form, manufacturer: h.m, series: h.s, part: h.part, power: h.p});
+                                }}>
+                                    <option>-- Оберіть модель з довідника --</option>
+                                    {(data.dict.hardware || []).map((h, i) => <option key={i} value={i}>{h.m} {h.s}</option>)}
                                 </select>
-                                <select className="w-full border-2 p-4 rounded-2xl bg-slate-900 text-white font-black uppercase" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
-                                    {["Резерв", "В експлуатації", "В ремонті", "Списаний"].map(s => <option key={s} value={s}>{s}</option>)}
+                                <input placeholder="Серійний №" className="border p-3 rounded-xl" onChange={e => setForm({...form, serial: e.target.value})} />
+                                <select className="border p-3 rounded-xl" onChange={e => setForm({...form, department: e.target.value})}>
+                                    <option>Департамент</option>
+                                    {(data.dict.departments || []).map(d => <option key={d}>{d}</option>)}
                                 </select>
-                                <button className="w-full bg-blue-600 text-white p-5 rounded-2xl font-black shadow-lg uppercase" onClick={save}>Зберегти</button>
+                                <select className="border p-3 rounded-xl" onChange={e => setForm({...form, unit: e.target.value})}>
+                                    <option>Одиниця</option>
+                                    {(data.dict.units || []).map(u => <option key={u}>{u}</option>)}
+                                </select>
+                                <select className="border p-3 rounded-xl" onChange={e => setForm({...form, tag: e.target.value})}>
+                                    <option>Тег</option>
+                                    {(data.dict.tags || []).map(t => <option key={t}>{t}</option>)}
+                                </select>
+                                <select className="border p-3 rounded-xl" onChange={e => setForm({...form, status: e.target.value})}>
+                                    <option>Статус</option>
+                                    <option>В роботі</option><option>Резерв</option><option>Ремонт</option>
+                                </select>
+                                <textarea placeholder="Коментар" className="col-span-2 border p-3 rounded-xl" onChange={e => setForm({...form, comment: e.target.value})} />
                             </div>
+                            <button onClick={save} className="w-full mt-6 bg-blue-600 text-white p-4 rounded-xl font-black uppercase">Зберегти</button>
                         </div>
                     </div>
                 );
             };
 
-            if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-white font-black uppercase">Loading...</div>;
-
-            if (view === 'hub') return (
-                <div className="max-w-6xl mx-auto py-24 px-4 text-center">
-                    <h1 className="text-5xl font-black mb-20 uppercase italic">Automation <span className="text-blue-600">Hub</span></h1>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-                        <div onClick={() => setView('vfd')} className="bg-white p-12 rounded-[3rem] shadow-xl border-b-8 border-blue-600 cursor-pointer hover:-translate-y-2 transition-all">
-                            <div className="text-7xl mb-6">🔌</div>
-                            <h2 className="text-2xl font-black uppercase">ПЧ</h2>
-                        </div>
-                        <div className="bg-slate-100 p-12 rounded-[3rem] opacity-50 cursor-not-allowed">
-                            <div className="text-7xl mb-6 grayscale">📟</div>
-                            <h2 className="text-2xl font-black uppercase text-slate-400">ПЛК (Незабаром)</h2>
-                        </div>
-                        <div className="bg-slate-100 p-12 rounded-[3rem] opacity-50 cursor-not-allowed">
-                            <div className="text-7xl mb-6 grayscale">🌡️</div>
-                            <h2 className="text-2xl font-black uppercase text-slate-400">ЗВТ (Незабаром)</h2>
-                        </div>
-                    </div>
-                </div>
-            );
-
             return (
-                <div className="max-w-7xl mx-auto p-4 md:p-8">
-                    <header className="flex justify-between items-center mb-10 bg-white p-6 rounded-[2.5rem] shadow-sm border">
-                        <button onClick={() => setView('hub')} className="font-black text-xl">←</button>
-                        <h1 className="text-xl font-black uppercase">Реєстр <span className="text-blue-600">ПЧ</span></h1>
-                        <button onClick={() => setModals({...modals, vfd: true})} className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-xs uppercase">+ Реєстрація</button>
+                <div className="p-8">
+                    <header className="flex justify-between mb-8">
+                        <h1 className="text-2xl font-black">VFD Pro Hub</h1>
+                        <button onClick={() => setModals({vfd: true})} className="bg-blue-600 text-white px-6 py-2 rounded-lg">+ Реєстрація</button>
                     </header>
+                    
+                    {/* Дашборд */}
+                    <div className="grid grid-cols-3 gap-6 mb-8">
+                        <div className="bg-white p-6 rounded-2xl border">Статуси: {Object.keys(data.vfds).length}</div>
+                        <div className="bg-white p-6 rounded-2xl border">Виробники: 5</div>
+                        <div className="bg-white p-6 rounded-2xl border">Потужність: 120 кВт</div>
+                    </div>
 
-                    <nav className="flex gap-6 mb-8 border-b-2 text-[10px] font-black uppercase tracking-widest">
-                        {['dash', 'table', 'dict', 'log'].map(t => (
-                            <button key={t} onClick={() => setActiveTab(t)} className={`pb-4 ${activeTab === t ? 'tab-active' : 'text-slate-400'}`}>
-                                {t === 'dash' ? 'Дашборд' : t === 'table' ? 'Таблиця' : t === 'dict' ? 'Довідник' : 'Журнал'}
-                            </button>
-                        ))}
-                    </nav>
-
-                    {activeTab === 'dash' && (
-                        <div className="space-y-10">
-                            <div className="grid grid-cols-5 gap-4">
-                                {[{l:'Усього', v:allVfds.length}, {l:'В роботі', v:allVfds.filter(v=>v.status==='В експлуатації').length}, {l:'Резерв', v:allVfds.filter(v=>v.status==='Резерв').length}, {l:'Ремонт', v:allVfds.filter(v=>v.status==='В ремонті').length}, {l:'Списано', v:allVfds.filter(v=>v.status==='Списаний').length}].map((s,i) => (
-                                    <div key={i} className="bg-white p-6 rounded-3xl shadow-sm"><p className="text-[9px] uppercase text-slate-400">{s.l}</p><p className="text-4xl font-black">{s.v}</p></div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'table' && (
-                        <div className="bg-white rounded-[2rem] shadow-sm overflow-hidden border">
-                            <table className="w-full text-left text-[11px] font-black uppercase">
-                                <thead className="bg-slate-50 text-slate-400">
-                                    <tr><th className="p-6">Дія</th><th className="p-6">Виробник</th><th className="p-6">Модель</th><th className="p-6">Код</th><th className="p-6">кВт</th><th className="p-6">S/N</th><th className="p-6">Тег</th><th className="p-6">Статус</th><th className="p-6">Оновлено</th></tr>
-                                </thead>
-                                <tbody>
-                                    {Object.entries(data.vfds || {}).map(([id, v]) => (
-                                        <tr key={id} className="border-t hover:bg-slate-50">
-                                            <td className="p-6 flex gap-2"><button onClick={() => { setSelectedId(id); setModals({...modals, edit: true}); }}>✎</button><button onClick={() => deleteDevice(id, v.serial)}>🗑</button></td>
-                                            <td className="p-6">{v.manufacturer}</td>
-                                            <td className="p-6">{v.series}</td>
-                                            <td className="p-6">{v.part}</td>
-                                            <td className="p-6">{v.power}</td>
-                                            <td className="p-6">{v.serial}</td>
-                                            <td className="p-6 text-blue-600">{v.tag}</td>
-                                            <td className="p-6">{v.status}</td>
-                                            <td className="p-6">{v.lastUpd}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {(modals.vfd || modals.edit) && <VfdModal mode={modals.edit ? 'edit' : 'add'} targetId={selectedId} />}
+                    {/* Таблиця */}
+                    <table className="w-full bg-white rounded-2xl overflow-hidden border">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="p-4">Виробник</th><th className="p-4">Модель</th><th className="p-4">Заказний код</th>
+                                <th className="p-4">Потужність</th><th className="p-4">S/N</th><th className="p-4">Тег</th>
+                                <th className="p-4">Статус</th><th className="p-4">Оновлено</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {Object.entries(data.vfds).map(([id, v]) => (
+                                <tr key={id} className="border-t">
+                                    <td className="p-4">{v.manufacturer}</td><td className="p-4">{v.series}</td><td className="p-4">{v.part}</td>
+                                    <td className="p-4">{v.power}</td><td className="p-4">{v.serial}</td><td className="p-4">{v.tag}</td>
+                                    <td className="p-4">{v.status}</td><td className="p-4">{v.lastUpd}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {modals.vfd && <VfdModal />}
                 </div>
             );
         }
-
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
